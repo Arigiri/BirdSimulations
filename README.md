@@ -20,9 +20,13 @@ Return information of:
 
 Functions:
     - Separations: Tránh va chạm.
+    
     - Alignment: Điều chỉnh bay hướng chung.
+    
     - Cohension: Di chuyển về phía trung tâm đàn.
+    
     - Food Seeking: Di chuyển đến nơi có nhiều đồ ăn.
+    
     - Food Consuming: Tốc độ tiêu hóa đồ ăn (Sau khi ăn, một con chim có thể sống một khoảng thời gian)
 
 ## Mathematical Model of Boids
