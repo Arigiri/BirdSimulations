@@ -1,37 +1,34 @@
 from utils.vector import Vector2D
 import numpy as np
+from utils.config import (
+    WINDOW_WIDTH, WINDOW_HEIGHT, MARGIN, SEPARATION_WEIGHT, ALIGNMENT_WEIGHT, COHESION_WEIGHT, EDGE_WEIGHT)
 
 def calculate_steering(bird, all_birds, separation_radius, alignment_radius, cohesion_radius, 
-                       separation_weight, alignment_weight, cohesion_weight, food_positions=None, food_ripeness=None):
-    """Tính toán và áp dụng các lực steering cho một con chim.
-    
-    Args:
-        bird: Đối tượng Bird cần tính steering
-        all_birds: Danh sách tất cả các Bird trong mô phỏng
-        separation_radius: Bán kính tách biệt
-        alignment_radius: Bán kính căn chỉnh
-        cohesion_radius: Bán kính gắn kết
-        separation_weight: Trọng số cho lực tách biệt
-        alignment_weight: Trọng số cho lực căn chỉnh
-        cohesion_weight: Trọng số cho lực gắn kết
-        food_positions: Danh sách vị trí các thức ăn (tùy chọn)
-        food_ripeness: Danh sách mức độ chín của thức ăn (tùy chọn)
-    """
+                       food_positions=None, food_ripeness=None):
+
+    """Tính toán và áp dụng các lực steering cho một con chim."""
     # Tính các lực cơ bản của boids
     separation_force = separation(bird, all_birds, separation_radius)
     alignment_force = alignment(bird, all_birds, alignment_radius)
     cohesion_force = cohesion(bird, all_birds, cohesion_radius)
     
+    # Tính lực tránh biên màn hình với trọng số cao hơn
+    edge_force = avoid_edges(bird, MARGIN)  # Tăng khoảng cách tránh biên lên 150px
+    
     # Áp dụng các lực với trọng số tương ứng
-    bird.apply_force(separation_force * separation_weight)
-    bird.apply_force(alignment_force * alignment_weight)
-    bird.apply_force(cohesion_force * cohesion_weight)
+    bird.apply_force(separation_force * SEPARATION_WEIGHT)
+    bird.apply_force(alignment_force * ALIGNMENT_WEIGHT)
+    bird.apply_force(cohesion_force * COHESION_WEIGHT)
+    bird.apply_force(edge_force * EDGE_WEIGHT)  # Tăng trọng số lực biên lên 3.0
     
     # Nếu có thức ăn, cũng tính lực hướng đến thức ăn
     if food_positions and food_ripeness and len(food_positions) > 0:
         food_force = seek_food(bird, food_positions, food_ripeness)
-        bird.apply_force(food_force * 1.5)  # Trọng số thức ăn cao hơn
+        bird.apply_force(food_force * 1.5)
     
+    # Ràng buộc vị trí chim trong màn hình
+    # constrain_to_screen(bird)
+
 def separation(bird, birds, separation_radius):
     """Tránh va chạm với các chim lân cận."""
     steering = Vector2D()
@@ -47,6 +44,7 @@ def separation(bird, birds, separation_radius):
             # Vector hướng từ chim khác đến chim này
             diff = bird.position - other.position
             diff = diff.normalize()
+            
             # Nếu càng gần thì càng phải tránh mạnh
             diff = diff / distance
             steering = steering + diff
@@ -58,7 +56,7 @@ def separation(bird, birds, separation_radius):
     if steering.magnitude() > 0:
         steering = steering.normalize() * bird.max_force
         
-    return steering
+    return steering.normalize()
 
 def alignment(bird, birds, alignment_radius):
     """Điều chỉnh bay theo hướng chung của đàn."""
@@ -81,7 +79,7 @@ def alignment(bird, birds, alignment_radius):
         steering = steering - bird.velocity
         steering = steering.limit(bird.max_force)
         
-    return steering
+    return steering.normalize()
 
 def cohesion(bird, birds, cohesion_radius):
     """Di chuyển về phía trung tâm đàn."""
@@ -111,7 +109,7 @@ def cohesion(bird, birds, cohesion_radius):
         steering = steering - bird.velocity
         steering = steering.limit(bird.max_force)
         
-    return steering
+    return steering.normalize()
 
 def seek_food(bird, food_positions, ripeness, food_radius=50.0):
     """Di chuyển đến nơi có thức ăn."""
@@ -151,3 +149,56 @@ def seek(bird, target):
     # Giới hạn lực
     steering = steering.limit(bird.max_force)
     return steering
+
+def avoid_edges(bird, margin):
+    """
+    Tạo lực đẩy dựa trên đường cong (spline) giữa vận tốc hiện tại 
+    và hướng song song với tường khi tiếp cận biên màn hình.
+    """
+    steering = Vector2D()
+    x, y = bird.position.x, bird.position.y
+    vx, vy = bird.velocity.x, bird.velocity.y
+    d_left = x
+    d_right = WINDOW_WIDTH - x
+    d_up = y
+    d_down = WINDOW_HEIGHT - y
+    M = bird.max_force
+    # print(x, y)
+    if y > WINDOW_HEIGHT - margin:
+        # print("UP")
+        if vx < 0:
+            steering.x = (d_left / WINDOW_WIDTH) * (d_left / WINDOW_WIDTH)
+            steering.y = -(d_up / WINDOW_HEIGHT) * (d_up / WINDOW_HEIGHT)
+        else:
+            steering.x = (d_right / WINDOW_WIDTH) * (d_right / WINDOW_WIDTH)
+            steering.y = -(d_up / WINDOW_HEIGHT) * (d_up / WINDOW_HEIGHT)
+    elif y < margin:
+        # print("DOWN")
+        if vx < 0:
+            steering.x = (d_left / WINDOW_WIDTH) * (d_left / WINDOW_WIDTH)
+            steering.y = (d_down / WINDOW_HEIGHT) * (d_down / WINDOW_HEIGHT)
+        else:
+            steering.x = (d_right / WINDOW_WIDTH) * (d_right / WINDOW_WIDTH)
+            steering.y = (d_down / WINDOW_HEIGHT) * d_down / WINDOW_HEIGHT
+
+    return steering.normalize()
+
+def constrain_to_screen(bird):
+    """Ràng buộc trực tiếp vị trí của chim trong màn hình."""
+    padding = 5  # Khoảng đệm nhỏ để tránh bám sát biên
+    print("BIRDS POSITION:", bird.position.x, bird.position.y)
+    # Ràng buộc trục X
+    if bird.position.x < padding:
+        bird.position.x = padding
+        bird.velocity.x *= -0.5  # Đảo ngược phần vận tốc theo X và giảm
+    elif bird.position.x > WINDOW_WIDTH - padding:
+        bird.position.x = WINDOW_WIDTH - padding
+        bird.velocity.x *= -0.5
+        
+    # Ràng buộc trục Y
+    if bird.position.y < padding:
+        bird.position.y = padding
+        bird.velocity.y *= -0.5  # Đảo ngược phần vận tốc theo Y và giảm
+    elif bird.position.y > WINDOW_HEIGHT - padding:
+        bird.position.y = WINDOW_HEIGHT - padding
+        bird.velocity.y *= -0.5

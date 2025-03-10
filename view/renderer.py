@@ -4,7 +4,7 @@ import numpy as np
 from utils.vector import Vector2D
 from utils.config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, INITIAL_BIRD_COUNT,
-    BIRD_SIZE, BIRD_COLORS, MAX_SPEED, HUNGER_RATE,
+    BIRD_SIZE, BIRD_COLORS, MIN_SPEED, MAX_SPEED, HUNGER_RATE,
     SEPARATION_RADIUS, ALIGNMENT_RADIUS, COHESION_RADIUS,
     SEPARATION_WEIGHT, ALIGNMENT_WEIGHT, COHESION_WEIGHT
 )
@@ -33,7 +33,7 @@ class SimpleRenderer:
             # Tạo vận tốc ngẫu nhiên
             vx = random.uniform(-1, 1)
             vy = random.uniform(-1, 1)
-            velocity = Vector2D(vx, vy).normalize() * random.uniform(1, MAX_SPEED * 0.5)
+            velocity = Vector2D(vx, vy).normalize() * random.uniform(MIN_SPEED, MAX_SPEED)
             
             # Tạo đối tượng Bird mới
             bird = Bird(x, y, velocity)
@@ -46,7 +46,7 @@ class SimpleRenderer:
     def update(self, dt):
         """Cập nhật trạng thái của tất cả các con chim"""
         # Áp dụng các quy tắc boids nếu có đủ chim
-        if len(self.birds) > 1:
+        if len(self.birds) >= 1:
             self.apply_boid_rules()
         
         # Tạo một danh sách chim còn sống sau khi update
@@ -87,9 +87,6 @@ class SimpleRenderer:
                 SEPARATION_RADIUS, 
                 ALIGNMENT_RADIUS, 
                 COHESION_RADIUS, 
-                SEPARATION_WEIGHT, 
-                ALIGNMENT_WEIGHT, 
-                COHESION_WEIGHT,
                 self.food_positions,
                 self.food_ripeness
             )

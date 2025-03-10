@@ -62,7 +62,7 @@ class Bird:
             new_velocity = self.velocity + self.steering
             
             # Chuẩn hóa và đặt lại tốc độ ban đầu
-            self.velocity = new_velocity.normalize() * self.speed
+            self.velocity = new_velocity
         
         # Đặt lại steering về 0
         self.steering = Vector2D(0, 0)
