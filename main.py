@@ -32,6 +32,12 @@ def main():
     # Trạng thái tạm dừng/chạy
     paused = False
     
+    # Tạo FPS display một lần duy nhất
+    fps_display = pyglet.window.FPSDisplay(window=window)
+    fps_display.label.x = window.width - 100
+    fps_display.label.y = window.height - 30
+    fps_display.label.font_size = 14
+    
     # Tạo labels thông tin
     info_label = pyglet.text.Label(
         'Birds: 0',
@@ -99,8 +105,7 @@ def main():
         # Vẽ các con chim
         renderer.draw()
         
-        # Hiển thị FPS
-        fps_display = pyglet.window.FPSDisplay(window=window)
+        # Hiển thị FPS - chỉ vẽ, không tạo mới
         fps_display.draw()
     
     def update_with_pause(dt):
