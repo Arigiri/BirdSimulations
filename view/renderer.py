@@ -2,12 +2,7 @@ import pyglet
 import random
 import numpy as np
 from utils.vector import Vector2D
-from utils.config import (
-    WINDOW_WIDTH, WINDOW_HEIGHT, INITIAL_BIRD_COUNT,
-    BIRD_SIZE, BIRD_COLORS, MIN_SPEED, MAX_SPEED, HUNGER_RATE,
-    SEPARATION_RADIUS, ALIGNMENT_RADIUS, COHESION_RADIUS,
-    SEPARATION_WEIGHT, ALIGNMENT_WEIGHT, COHESION_WEIGHT
-)
+from utils.config import *
 from model.bird import Bird
 from model.steering import calculate_steering
 
@@ -16,7 +11,7 @@ class SimpleRenderer:
     
     def __init__(self, window_width, window_height):
         """Khởi tạo renderer với kích thước cửa sổ"""
-        self.window_width = window_width
+        self.window_width = window_width - INFO_PANEL_WIDTH  # Trừ đi thanh thông tin
         self.window_height = window_height
         self.birds = []
         self.food_positions = []  # Vị trí các thức ăn
@@ -53,8 +48,18 @@ class SimpleRenderer:
         living_birds = []
         
         for bird in self.birds:
-            # Cập nhật trạng thái chim
-            bird.update(dt)
+            # Truyền thông tin thức ăn nếu có
+            food_positions = getattr(self, 'food_positions', None)
+            food_ripeness = getattr(self, 'food_ripeness', None)
+            
+            # Kiểm tra xem bird.update có nhận tham số food không
+            import inspect
+            bird_update_params = inspect.signature(bird.update).parameters
+            
+            if len(bird_update_params) >= 4 and food_positions is not None:
+                bird.update(dt, self.birds, food_positions, food_ripeness)
+            else:
+                bird.update(dt, self.birds)
             
             # Kiểm tra biên
             bird.edges()
@@ -81,12 +86,17 @@ class SimpleRenderer:
     def apply_boid_rules(self):
         """Áp dụng các quy tắc boids: separation, alignment, cohesion"""
         for bird in self.birds:
+            # Truyền thông tin thức ăn nếu có
+            food_positions = getattr(self, 'food_positions', None)
+            food_ripeness = getattr(self, 'food_ripeness', None)
+            
+            # Đảm bảo truyền đúng các tham số
             calculate_steering(
                 bird, 
                 self.birds, 
                 SEPARATION_RADIUS, 
                 ALIGNMENT_RADIUS, 
                 COHESION_RADIUS, 
-                self.food_positions,
-                self.food_ripeness
+                food_positions,
+                food_ripeness
             )

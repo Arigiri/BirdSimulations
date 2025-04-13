@@ -51,8 +51,16 @@ class Bird:
         """Áp dụng lực lái lên chim (chỉ thay đổi hướng, không thay đổi tốc độ)."""
         self.steering = self.steering + force
     
-    def update(self, dt=1.0):
-        """Cập nhật vị trí và trạng thái của chim."""
+    def update(self, dt=1.0, nearby_birds=None, food_positions=None, food_ripeness=None):
+        """
+        Cập nhật vị trí và trạng thái của chim.
+        
+        Args:
+            dt (float): Thời gian trôi qua từ lần cập nhật trước
+            nearby_birds (list): Danh sách các chim lân cận
+            food_positions (list): Danh sách vị trí các thức ăn
+            food_ripeness (list): Danh sách độ chín của thức ăn
+        """
         # Giới hạn lực lái
         self.steering = self.steering.limit(self.max_force)
         
@@ -62,7 +70,7 @@ class Bird:
             new_velocity = self.velocity + self.steering
             
             # Chuẩn hóa và đặt lại tốc độ ban đầu
-            self.velocity = new_velocity
+            self.velocity = new_velocity.normalize() * self.speed
         
         # Đặt lại steering về 0
         self.steering = Vector2D(0, 0)
@@ -70,9 +78,17 @@ class Bird:
         # Cập nhật vị trí
         self.position = self.position + (self.velocity * dt)
         
+        # Kiểm tra và tiêu thụ thức ăn nếu có
+        if food_positions and food_ripeness:
+            food_index = self.consume_food(food_positions, food_ripeness)
+            if food_index >= 0:
+                # Chim đã ăn được thức ăn
+                self.eat(0.5)  # Tăng năng lượng/giảm đói
+        
         # Giảm thời gian sống còn lại và đói
         self.lifespan -= 1
         self.hunger -= HUNGER_RATE * dt
+        self.hunger = max(0.0, self.hunger)  # Đảm bảo hunger không âm
         
         # Kiểm tra nếu chim đã hết thời gian sống hoặc quá đói
         if self.lifespan <= 0 or self.hunger <= 0:
@@ -106,27 +122,31 @@ class Bird:
         return -1
     
     def get_vertices(self):
-        """Tính toán các đỉnh của hình tam giác cho việc vẽ."""
-        # Hướng mũi chim
-        angle = np.arctan2(self.velocity.y, self.velocity.x)
+        """Tính các đỉnh của hình tam giác đại diện cho chim."""
+        # Tính các đỉnh dựa trên vị trí, hướng và kích thước
+        angle = self.velocity.heading()
         
-        # Ba đỉnh tam giác
-        v1 = Vector2D(
-            self.position.x + self.size * np.cos(angle),
-            self.position.y + self.size * np.sin(angle)
-        )
+        # Các đỉnh của hình tam giác
+        vertices = []
         
-        v2 = Vector2D(
-            self.position.x + self.size * 0.5 * np.cos(angle + 2.5),
-            self.position.y + self.size * 0.5 * np.sin(angle + 2.5)
-        )
+        # Đỉnh trước (mũi chim)
+        front_x = self.position.x + self.size * np.cos(angle)
+        front_y = self.position.y + self.size * np.sin(angle)
+        vertices.append((front_x, front_y))  # Trả về tuple (x, y) thay vì Vector2D
         
-        v3 = Vector2D(
-            self.position.x + self.size * 0.5 * np.cos(angle - 2.5),
-            self.position.y + self.size * 0.5 * np.sin(angle - 2.5)
-        )
+        # Đỉnh phải
+        right_angle = angle + 2.5  # Khoảng 140 độ so với hướng bay
+        right_x = self.position.x + self.size * 0.7 * np.cos(right_angle)
+        right_y = self.position.y + self.size * 0.7 * np.sin(right_angle)
+        vertices.append((right_x, right_y))  # Trả về tuple (x, y)
         
-        return [v1, v2, v3]
+        # Đỉnh trái
+        left_angle = angle - 2.5  # Khoảng -140 độ so với hướng bay
+        left_x = self.position.x + self.size * 0.7 * np.cos(left_angle)
+        left_y = self.position.y + self.size * 0.7 * np.sin(left_angle)
+        vertices.append((left_x, left_y))  # Trả về tuple (x, y)
+        
+        return vertices
     
     def get_color(self):
         """Trả về màu sắc dựa trên mức độ đói và năng lượng."""
@@ -139,16 +159,44 @@ class Bird:
         return (r, g, b, alpha)
     
     def get_info(self):
-        """Trả về thông tin của chim cho frontend."""
-        return {
-            'position': self.position.as_tuple(),
-            'velocity': self.velocity.as_tuple(),
-            'life_duration': self.max_lifespan - self.lifespan,
-            'time_left': self.lifespan,
-            'hunger': self.hunger,
-            'is_dead': self.is_dead
+        """Trả về thông tin chi tiết về chim để hiển thị"""
+        info = {
+            "position": f"Vị trí: ({int(self.position.x)}, {int(self.position.y)})",
+            "velocity": f"Vận tốc: {int(self.velocity.magnitude())}",
+            "lifetime": f"Tuổi: {int(self.lifetime)} giây",
+            "health": f"Sức khỏe: {int(self.health * 100)}%",
+            "energy": f"Năng lượng: {int(self.energy * 100)}%"
         }
-
+        
+        # Thêm thông tin về đói nếu có
+        if hasattr(self, 'hunger'):
+            info["hunger"] = f"Đói: {int(self.hunger * 100)}%"
+        
+        return info
+    
+    def contains_point(self, x, y):
+        """Kiểm tra xem một điểm có nằm trong chim không."""
+        vertices = self.get_vertices()
+        
+        # Sử dụng thuật toán ray casting để kiểm tra điểm nằm trong đa giác
+        inside = False
+        j = len(vertices) - 1
+        
+        for i in range(len(vertices)):
+            # Truy cập x, y qua tuple index (vertices trả về danh sách tuple (x,y))
+            xi = vertices[i][0]
+            yi = vertices[i][1]
+            xj = vertices[j][0]
+            yj = vertices[j][1]
+            
+            intersect = ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+            if intersect:
+                inside = not inside
+            
+            j = i
+        
+        return inside
+    
     def seek(self, target):
         """Tìm kiếm đến một vị trí mục tiêu"""
         # Tính vector mong muốn
@@ -163,10 +211,13 @@ class Bird:
         
     def edges(self):
         """Xử lý biên màn hình"""
+        # Sử dụng kích thước màn hình hiệu quả (trừ đi info panel)
+        effective_width = WINDOW_WIDTH - INFO_PANEL_WIDTH
+        
         # Bọc quanh theo chiều ngang
         if self.position.x < 0:
-            self.position.x = WINDOW_WIDTH
-        elif self.position.x > WINDOW_WIDTH:
+            self.position.x = effective_width
+        elif self.position.x > effective_width:
             self.position.x = 0
             
         # Bọc quanh theo chiều dọc
@@ -197,9 +248,9 @@ class Bird:
         
         # Tạo danh sách các điểm
         points = [
-            vertices[0].x, vertices[0].y,
-            vertices[1].x, vertices[1].y,
-            vertices[2].x, vertices[2].y
+            vertices[0][0], vertices[0][1],  # Truy cập x, y qua tuple index
+            vertices[1][0], vertices[1][1],  # Truy cập x, y qua tuple index
+            vertices[2][0], vertices[2][1]   # Truy cập x, y qua tuple index
         ]
         
         # Vẽ tam giác sử dụng pyglet.shapes

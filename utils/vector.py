@@ -64,6 +64,11 @@ class Vector2D:
         """Tạo vector từ mảng NumPy."""
         return Vector2D(array[0], array[1])
 
+    def heading(self):
+        """Trả về góc của vector (radians)"""
+        import math
+        return math.atan2(self.y, self.x)
+
 
 # Helper functions for numpy arrays
 def vector_add(v1, v2):

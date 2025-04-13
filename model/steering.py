@@ -1,11 +1,9 @@
 from utils.vector import Vector2D
 import numpy as np
-from utils.config import (
-    WINDOW_WIDTH, WINDOW_HEIGHT, MARGIN, SEPARATION_WEIGHT, ALIGNMENT_WEIGHT, COHESION_WEIGHT, EDGE_WEIGHT)
+from utils.config import *
 
 def calculate_steering(bird, all_birds, separation_radius, alignment_radius, cohesion_radius, 
                        food_positions=None, food_ripeness=None):
-
     """Tính toán và áp dụng các lực steering cho một con chim."""
     # Tính các lực cơ bản của boids
     separation_force = separation(bird, all_birds, separation_radius)
@@ -13,21 +11,18 @@ def calculate_steering(bird, all_birds, separation_radius, alignment_radius, coh
     cohesion_force = cohesion(bird, all_birds, cohesion_radius)
     
     # Tính lực tránh biên màn hình với trọng số cao hơn
-    edge_force = avoid_edges(bird, MARGIN)  # Tăng khoảng cách tránh biên lên 150px
+    edge_force = avoid_edges(bird, MARGIN)
     
     # Áp dụng các lực với trọng số tương ứng
     bird.apply_force(separation_force * SEPARATION_WEIGHT)
     bird.apply_force(alignment_force * ALIGNMENT_WEIGHT)
     bird.apply_force(cohesion_force * COHESION_WEIGHT)
-    bird.apply_force(edge_force * EDGE_WEIGHT)  # Tăng trọng số lực biên lên 3.0
+    bird.apply_force(edge_force * EDGE_WEIGHT)
     
     # Nếu có thức ăn, cũng tính lực hướng đến thức ăn
     if food_positions and food_ripeness and len(food_positions) > 0:
         food_force = seek_food(bird, food_positions, food_ripeness)
-        bird.apply_force(food_force * 1.5)
-    
-    # Ràng buộc vị trí chim trong màn hình
-    # constrain_to_screen(bird)
+        bird.apply_force(food_force * FOOD_WEIGHT)  # Trọng số cho lực tìm thức ăn
 
 def separation(bird, birds, separation_radius):
     """Tránh va chạm với các chim lân cận."""
@@ -111,30 +106,72 @@ def cohesion(bird, birds, cohesion_radius):
         
     return steering.normalize()
 
-def seek_food(bird, food_positions, ripeness, food_radius=50.0):
-    """Di chuyển đến nơi có thức ăn."""
+def seek_food(bird, food_positions, ripeness, food_radius=150.0):
+    """
+    Di chuyển đến nơi có thức ăn, ưu tiên quả đã chín và gần nhất.
+    
+    Args:
+        bird: Đối tượng Bird cần tìm thức ăn
+        food_positions: Danh sách vị trí của các quả
+        ripeness: Danh sách độ chín tương ứng với các quả
+        food_radius: Phạm vi tìm kiếm thức ăn
+        
+    Returns:
+        Vector2D: Lực steering hướng về quả hấp dẫn nhất
+    """
     if not food_positions or len(food_positions) == 0:
         return Vector2D()
     
-    # Tìm thức ăn gần nhất đã chín
-    nearest_food = None
-    min_distance = float('inf')
+    # Tìm thức ăn phù hợp nhất dựa trên độ chín và khoảng cách
+    best_food_index = -1
+    best_food_score = -float('inf')  # Điểm số càng cao càng hấp dẫn
     
     for i, pos in enumerate(food_positions):
-        if ripeness[i] >= 1.0:  # Chỉ quan tâm đến quả đã chín
+        # Chỉ quan tâm đến quả có độ chín hợp lý (từ 0.7 đến 1.5)
+        if 0.7 <= ripeness[i] < 1.5:
             food_pos = Vector2D(pos[0], pos[1])
             distance = bird.position.distance_to(food_pos)
             
-            if distance < food_radius and distance < min_distance:
-                nearest_food = food_pos
-                min_distance = distance
+            if distance < food_radius:
+                # Tính điểm hấp dẫn của quả dựa trên độ chín và khoảng cách
+                # Quả chín hoàn toàn (ripeness=1) có điểm cao nhất
+                ripeness_score = 1.0 - abs(ripeness[i] - 1.0)
+                distance_score = 1.0 - (distance / food_radius)  # Càng gần càng tốt
+                
+                # Tổng hợp điểm số, có thể điều chỉnh trọng số
+                score = (ripeness_score * 0.7) + (distance_score * 0.3)
+                
+                if score > best_food_score:
+                    best_food_score = score
+                    best_food_index = i
     
-    if nearest_food is not None:
-        desired = nearest_food - bird.position
-        if desired.magnitude() > 0:
-            desired = desired.normalize() * bird.max_speed
-            steering = desired - bird.velocity
-            return steering.limit(bird.max_force)
+    # Nếu tìm thấy quả phù hợp, tạo lực steering đến quả đó
+    if best_food_index >= 0:
+        target_pos = Vector2D(food_positions[best_food_index][0], 
+                             food_positions[best_food_index][1])
+                             
+        distance = bird.position.distance_to(target_pos)
+        
+        # Tính lực steering theo phương pháp seek
+        desired = target_pos - bird.position
+        
+        # Điều chỉnh lực mạnh yếu dựa trên khoảng cách và độ chín
+        desired_magnitude = bird.max_speed
+        
+        # Nếu quả gần chín hoàn toàn và ở gần, tăng lực
+        ripeness_factor = ripeness[best_food_index]
+        if 0.9 <= ripeness_factor <= 1.1 and distance < food_radius * 0.5:
+            desired_magnitude *= 1.5
+            
+        desired = desired.normalize() * desired_magnitude
+        steering = desired - bird.velocity
+        
+        # Điều chỉnh max_force dựa trên độ thèm ăn
+        hunger_factor = 1.0
+        if hasattr(bird, 'hunger'):
+            hunger_factor = max(0.5, min(2.0, 1.0 / (bird.hunger + 0.1)))
+            
+        return steering.limit(bird.max_force * hunger_factor)
     
     return Vector2D()
 
@@ -195,7 +232,7 @@ def constrain_to_screen(bird):
         bird.position.x = WINDOW_WIDTH - padding
         bird.velocity.x *= -0.5
         
-    # Ràng buộc trục Y
+    # Ràng buộc trục Yf
     if bird.position.y < padding:
         bird.position.y = padding
         bird.velocity.y *= -0.5  # Đảo ngược phần vận tốc theo Y và giảm

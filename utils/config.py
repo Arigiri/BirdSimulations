@@ -6,6 +6,9 @@ Cài đặt cấu hình cho Mô phỏng đàn chim én.
 WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 600
 WINDOW_TITLE = "Mô phỏng đàn chim én"
+
+INFO_PANEL_WIDTH = 250  # Chiều rộng của thanh thông tin bên phải
+
 FULLSCREEN = False
 VSYNC = True
 
@@ -23,6 +26,7 @@ SEPARATION_WEIGHT = 1.5
 ALIGNMENT_WEIGHT = 1.0
 COHESION_WEIGHT = 1.0
 EDGE_WEIGHT = 3.0
+FOOD_WEIGHT = 1.5
 
 
 MAX_SPEED = 50.0
@@ -52,6 +56,7 @@ HUNGER_RATE = 0.01  # Tỷ lệ đói mỗi frame
 
 # Các tham số trái cây
 FRUIT_RADIUS = 5.0
-FRUIT_COLOR_UNRIPE = (0, 255, 0, 255)  # Xanh
-FRUIT_COLOR_RIPE = (255, 0, 0, 255)    # Đỏ
-RIPENING_RATE = 0.001
+FRUIT_COLOR_UNRIPE = (0, 255, 0, 255)    # Xanh lá cây
+FRUIT_COLOR_RIPE = (255, 165, 0, 255)    # Cam
+RIPENING_RATE = 0.1                    # Tốc độ chín (đơn vị độ chín/giây)
+FRUIT_NUTRITION_VALUE = 2.0            # Giá trị dinh dưỡng của mỗi quả (giảm độ đói)
