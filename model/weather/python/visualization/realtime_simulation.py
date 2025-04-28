@@ -14,11 +14,16 @@ from matplotlib.colors import Normalize
 
 # Điều chỉnh Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
+# Thêm các thư mục cha vào python path
+python_dir = os.path.abspath(os.path.join(current_dir, '..'))
+weather_dir = os.path.abspath(os.path.join(python_dir, '..'))
+model_dir = os.path.abspath(os.path.join(weather_dir, '..'))
+project_root = os.path.abspath(os.path.join(model_dir, '..'))
+
+# Thêm các thư mục vào python path
+for path in [current_dir, python_dir, weather_dir, model_dir, project_root]:
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 class RealtimeWeatherSimulation:
     """Mô phỏng thời tiết thời gian thực"""
@@ -38,23 +43,48 @@ class RealtimeWeatherSimulation:
         self.dx = dx
         self.kappa = kappa
         
-        print(f"Khởi tạo mô phỏng thời tiết thời gian thực ({width}x{height})")
+        # Fix encoding for Windows terminal
+        try:
+            print(f"Khởi tạo mô phỏng thời tiết thời gian thực ({width}x{height})")
+        except UnicodeEncodeError:
+            print(f"Initializing real-time weather simulation ({width}x{height})")
         
         # Import module C++
         try:
-            from model.weather.python.core import cpp_weather
+            # Thử import bằng các cách khác nhau để hỗ trợ chạy trực tiếp hoặc qua module
+            try:
+                # Nếu chạy qua module (model.weather.python...)
+                from model.weather.python.core import cpp_weather
+            except ImportError:
+                # Nếu chạy trực tiếp từ thư mục visualization
+                sys.path.append(os.path.join(python_dir, 'core'))
+                import cpp_weather
+            
             self.cpp_weather = cpp_weather
-            print("Đã tải module C++ thành công")
+            # Fix encoding for Windows terminal
+            try:
+                print("Đã tải module C++ thành công")
+            except UnicodeEncodeError:
+                print("C++ module loaded successfully")
         except ImportError as e:
-            print(f"Lỗi import module C++: {e}")
-            print("Đảm bảo module C++ đã được biên dịch và có trong Python path")
+            # Fix encoding for Windows terminal
+            try:
+                print(f"Lỗi import module C++: {e}")
+                print("Đảm bảo module C++ đã được biên dịch và có trong Python path")
+            except UnicodeEncodeError:
+                print(f"Error importing C++ module: {e}")
+                print("Make sure the C++ module is compiled and in the Python path")
             sys.exit(1)
         
         # Khởi tạo các đối tượng C++
         self.solver = self.cpp_weather.Solver(width, height, dx, kappa)
         self.wind_field = self.cpp_weather.WindField(width, height)
         self.temp_field = self.cpp_weather.TemperatureField(width, height)
-        print("Đã khởi tạo các đối tượng C++")
+        # Fix encoding for Windows terminal
+        try:
+            print("Đã khởi tạo các đối tượng C++")
+        except UnicodeEncodeError:
+            print("C++ objects initialized")
         
         # Khởi tạo dữ liệu lưu trữ
         self.time = 0.0
@@ -82,28 +112,25 @@ class RealtimeWeatherSimulation:
     
     def set_initial_conditions(self):
         """Tạo điều kiện ban đầu thực tế"""
-        print("Thiết lập điều kiện ban đầu...")
+        # Fix encoding for Windows terminal
+        try:
+            print("Thiết lập điều kiện ban đầu...")
+        except UnicodeEncodeError:
+            print("Setting up initial conditions...")
         
         # Tạo gradient nhiệt độ theo hướng North-South
         self.temp_field.set_gradient(10.0, 30.0, self.cpp_weather.GradientDirection.NORTH_SOUTH)
         
         # Thêm nguồn nhiệt ở giữa
-        center_x = self.width // 2
-        center_y = self.height // 2
-        self.temp_field.add_heat_source(center_x, center_y, 15.0, self.width // 10)
+        heat_source_x = self.width // 2
+        heat_source_y = self.height // 2
+        heat_source_radius = min(self.width, self.height) // 10
+        heat_source_temp = 35.0
+        self.temp_field.add_heat_source(heat_source_x, heat_source_y, heat_source_radius, heat_source_temp)
         
-        # Thêm nguồn nhiệt ngẫu nhiên
-        np.random.seed(42)  # Để tái tạo kết quả
-        num_sources = 5
-        for _ in range(num_sources):
-            x = np.random.randint(0, self.width)
-            y = np.random.randint(0, self.height)
-            strength = np.random.uniform(5.0, 10.0)
-            radius = np.random.uniform(self.width // 20, self.width // 10)
-            self.temp_field.add_heat_source(x, y, strength, radius)
-        
-        # Tạo trường gió Gaussian
-        self.wind_field.generate_gaussian_field(8, 2.0, self.width // 8)
+        # Tạo trường gió Gaussian với một số vịnh xoáy ngẫu nhiên
+        # Thông số: số lượng vịnh xoáy, cường độ, bán kính
+        self.wind_field.generate_gaussian_field(8, 2.0, self.width // 10)
         
         # Lấy dữ liệu ban đầu
         temp = self.get_temperature()
@@ -111,9 +138,18 @@ class RealtimeWeatherSimulation:
         # Cập nhật phạm vi nhiệt độ
         self.min_temp = max(0, np.min(temp) - 5)
         self.max_temp = min(45, np.max(temp) + 5)
-        print(f"Phạm vi nhiệt độ: {self.min_temp:.1f} - {self.max_temp:.1f}")
         
-        print("Đã thiết lập điều kiện ban đầu")
+        # Fix encoding for Windows terminal
+        try:
+            print(f"Phạm vi nhiệt độ: {self.min_temp:.1f} - {self.max_temp:.1f}")
+        except UnicodeEncodeError:
+            print(f"Temperature range: {self.min_temp:.1f} - {self.max_temp:.1f}")
+        
+        # Fix encoding for Windows terminal
+        try:
+            print("Đã thiết lập điều kiện ban đầu")
+        except UnicodeEncodeError:
+            print("Initial conditions set up successfully")
     
     def get_temperature(self):
         """Lấy trường nhiệt độ hiện tại dưới dạng mảng 2D"""
@@ -169,7 +205,10 @@ class RealtimeWeatherSimulation:
         
         # Thêm colorbar
         self.colorbar = self.fig.colorbar(self.temp_plot, ax=self.ax)
-        self.colorbar.set_label('Nhiệt độ (°C)')
+        try:
+            self.colorbar.set_label('Nhiệt độ (°C)')
+        except UnicodeEncodeError:
+            self.colorbar.set_label('Temperature (°C)')
         
         # Tạo lưới cho vector gió
         y, x = np.mgrid[0:self.height:self.quiver_density, 0:self.width:self.quiver_density]
@@ -183,12 +222,18 @@ class RealtimeWeatherSimulation:
         )
         
         # Thêm tiêu đề và nhãn
-        self.ax.set_title(f'Mô phỏng thời tiết (t={self.time:.2f}s, bước {self.steps})')
+        try:
+            self.ax.set_title(f'Mô phỏng thời tiết (t={self.time:.2f}s, bước {self.steps})')
+        except UnicodeEncodeError:
+            self.ax.set_title(f'Weather Simulation (t={self.time:.2f}s, step {self.steps})')
         self.ax.set_xlabel('X')
         self.ax.set_ylabel('Y')
         
         # Thêm chú thích
-        plt.figtext(0.02, 0.02, 'Phím Q: Thoát', fontsize=9)
+        try:
+            plt.figtext(0.02, 0.02, 'Phím Q: Thoát', fontsize=9)
+        except UnicodeEncodeError:
+            plt.figtext(0.02, 0.02, 'Press Q: Exit', fontsize=9)
         
         return self.temp_plot, self.quiver_plot
     
@@ -214,8 +259,12 @@ class RealtimeWeatherSimulation:
             )
         
         # Cập nhật tiêu đề
-        self.ax.set_title(f'Mô phỏng thời tiết (t={self.time:.2f}s, bước {self.steps})\n'
-                         f'FPS: {1.0/max(0.001, compute_time):.1f}, dt: {dt:.4f}s')
+        try:
+            self.ax.set_title(f'Mô phỏng thời tiết (t={self.time:.2f}s, bước {self.steps})\n'
+                            f'FPS: {1.0/max(0.001, compute_time):.1f}, dt: {dt:.4f}s')
+        except UnicodeEncodeError:
+            self.ax.set_title(f'Weather Simulation (t={self.time:.2f}s, step {self.steps})\n'
+                            f'FPS: {1.0/max(0.001, compute_time):.1f}, dt: {dt:.4f}s')
         
         return self.temp_plot, self.quiver_plot
     
@@ -232,7 +281,11 @@ class RealtimeWeatherSimulation:
             num_frames (int): Số lượng frames
             interval (int): Khoảng thời gian giữa các frames (ms)
         """
-        print(f"Chạy animation với {num_frames} frames, interval={interval}ms")
+        # Fix encoding for Windows terminal
+        try:
+            print(f"Chạy animation với {num_frames} frames, interval={interval}ms")
+        except UnicodeEncodeError:
+            print(f"Running animation with {num_frames} frames, interval={interval}ms")
         
         # Kết nối sự kiện nhấn phím
         self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
@@ -249,7 +302,11 @@ class RealtimeWeatherSimulation:
 
 def main():
     """Hàm chính"""
-    print("Mô phỏng thời tiết thời gian thực")
+    # Fix encoding for Windows terminal
+    try:
+        print("Mô phỏng thời tiết thời gian thực")
+    except UnicodeEncodeError:
+        print("Real-time Weather Simulation")
     
     # Tham số mô phỏng
     width = 200
@@ -264,7 +321,11 @@ def main():
     # Chạy animation
     simulation.run_animation(num_frames=frames, interval=interval)
     
-    print("Mô phỏng kết thúc")
+    # Fix encoding for Windows terminal
+    try:
+        print("Mô phỏng kết thúc")
+    except UnicodeEncodeError:
+        print("Simulation finished")
 
 if __name__ == "__main__":
     main()

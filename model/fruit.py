@@ -24,7 +24,6 @@ class Fruit:
         self.ripeness = 0.0  # Quả bắt đầu chưa chín
         self.radius = FRUIT_RADIUS
         self.is_eaten = False
-        self.weather_factor = 1.0  # Hệ số ảnh hưởng của thời tiết (mặc định = 1.0 = không ảnh hưởng)
     
     def update(self, current_time, dt):
         """
@@ -37,20 +36,8 @@ class Fruit:
         Returns:
             bool: True nếu quả vẫn còn hiệu lực, False nếu quả đã quá chín (ripeness >= 2)
         """
-        # Tính toán độ chín cơ bản dựa trên thời gian
         time_existed = current_time - self.creation_time
-        base_ripeness = calculate_ripeness(time_existed)
-        
-        # Áp dụng hệ số thời tiết nếu được đặt (từ module thời tiết)
-        if hasattr(self, 'weather_factor'):
-            # Tốc độ chín thay đổi theo nhiệt độ 
-            ripening_delta = (base_ripeness - self.ripeness) * self.weather_factor
-            self.ripeness += ripening_delta
-        else:
-            self.ripeness = base_ripeness
-            
-        # Giới hạn độ chín trong phạm vi hợp lệ
-        self.ripeness = min(max(0.0, self.ripeness), 2.0)
+        self.ripeness = calculate_ripeness(time_existed)
         
         # Quả sẽ biến mất khi ripeness >= 2.0
         return self.ripeness < 2.0 and not self.is_eaten
@@ -85,15 +72,6 @@ class Fruit:
     def mark_as_eaten(self):
         """Đánh dấu quả đã bị ăn"""
         self.is_eaten = True
-        
-    def set_weather_factor(self, factor):
-        """
-        Đặt hệ số ảnh hưởng của thời tiết đến tốc độ chín của quả
-        
-        Args:
-            factor (float): Hệ số ảnh hưởng (>1: chín nhanh hơn, <1: chín chậm hơn)
-        """
-        self.weather_factor = max(0.25, min(2.0, factor))  # Giới hạn trong [0.25, 2.0]
 
 class FruitManager:
     """Lớp quản lý tập hợp các quả trong mô phỏng"""
@@ -103,16 +81,6 @@ class FruitManager:
         self.fruits = []
         self.positions = []  # Danh sách vị trí để truyền vào hàm steering
         self.ripeness = []   # Danh sách độ chín tương ứng
-        self.weather_integration = None  # Tham chiếu đến module thời tiết (sẽ được thiết lập sau)
-    
-    def set_weather_integration(self, weather_integration):
-        """
-        Thiết lập tham chiếu đến module thời tiết.
-        
-        Args:
-            weather_integration: Đối tượng WeatherIntegration
-        """
-        self.weather_integration = weather_integration
     
     def add_fruit(self, position=None):
         """Thêm một quả mới vào mô phỏng"""
@@ -129,26 +97,9 @@ class FruitManager:
             current_time (float): Thời gian hiện tại
             dt (float): Thời gian trôi qua từ lần cập nhật trước
         """
-        # Áp dụng ảnh hưởng thời tiết nếu có tham chiếu đến module thời tiết
-        if self.weather_integration and self.weather_integration.initialized:
-            self.apply_weather_influence()
-            
         # Cập nhật từng quả và loại bỏ những quả đã quá chín hoặc đã bị ăn
         self.fruits = [fruit for fruit in self.fruits if fruit.update(current_time, dt)]
         self.update_arrays()
-    
-    def apply_weather_influence(self):
-        """
-        Áp dụng ảnh hưởng của thời tiết lên tất cả các quả.
-        """
-        if not self.weather_integration:
-            return
-            
-        # Chạy qua từng quả và áp dụng hệ số thời tiết
-        for fruit in self.fruits:
-            x, y = fruit.position.x, fruit.position.y
-            ripening_factor = self.weather_integration.get_weather_influence_on_fruit(x, y)
-            fruit.set_weather_factor(ripening_factor)
     
     def update_arrays(self):
         """Cập nhật mảng vị trí và độ chín để sử dụng trong steering"""

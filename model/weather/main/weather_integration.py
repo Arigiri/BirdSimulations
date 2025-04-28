@@ -83,10 +83,18 @@ class WeatherIntegration:
             
             print("Khởi tạo module thời tiết C++ thành công")
         except ImportError as e:
-            print(f"Không thể tải module C++ 'cpp_weather': {e}")
+            # Fix encoding for Windows console
+            try:
+                print(f"Không thể tải module C++ 'cpp_weather': {e}")
+            except UnicodeEncodeError:
+                print(f"Could not load C++ module 'cpp_weather': {e}")
             self.initialized = False
         except Exception as e:
-            print(f"Lỗi khi khởi tạo module thời tiết: {e}")
+            # Fix encoding for Windows console
+            try:
+                print(f"Lỗi khi khởi tạo module thời tiết: {e}")
+            except UnicodeEncodeError:
+                print(f"Error initializing weather module: {e}")
             self.initialized = False
     
     def initialize_weather(self):
@@ -499,3 +507,43 @@ class WeatherIntegration:
             self.auto_update_interval = 10  # Cập nhật sau mỗi 10 bước
         
         return self.auto_iterate
+        
+    def get_temperature_field(self):
+        """
+        Lấy mảng 2D chứa dữ liệu nhiệt độ để hiển thị
+        
+        Returns:
+            numpy.ndarray: Mảng 2D trường nhiệt độ, hoặc None nếu không khởi tạo
+        """
+        if not self.initialized or not hasattr(self, 'temp_field'):
+            return None
+            
+        # Lấy dữ liệu nhiệt độ và chuyển thành mảng 2D
+        raw_temp = self.temp_field.get_temperature()
+        temp_array = raw_temp.reshape(self.grid_height, self.grid_width)
+        
+        # Cập nhật min/max nhiệt độ
+        import numpy as np
+        self.min_temp = max(0, np.min(temp_array) - 5)
+        self.max_temp = min(45, np.max(temp_array) + 5)
+        
+        return temp_array
+        
+    def get_wind_field(self):
+        """
+        Lấy hai mảng 2D chứa dữ liệu gió (x, y) để hiển thị
+        
+        Returns:
+            tuple: (wind_x, wind_y) hai mảng 2D, hoặc (None, None) nếu không khởi tạo
+        """
+        if not self.initialized or not hasattr(self, 'wind_field'):
+            return None, None
+            
+        # Lấy dữ liệu gió và chuyển thành mảng 2D
+        raw_wind_x = self.wind_field.get_wind_x()
+        raw_wind_y = self.wind_field.get_wind_y()
+        
+        wind_x = raw_wind_x.reshape(self.grid_height, self.grid_width)
+        wind_y = raw_wind_y.reshape(self.grid_height, self.grid_width)
+        
+        return wind_x, wind_y
