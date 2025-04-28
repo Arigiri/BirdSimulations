@@ -128,6 +128,56 @@ cpp_weather/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\cpp_weather.dir\build.make CMakeFiles/cpp_weather.dir/build
 .PHONY : cpp_weather/fast
 
+#=============================================================================
+# Target rules for targets named solver_seq
+
+# Build rule for target.
+solver_seq: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 solver_seq
+.PHONY : solver_seq
+
+# fast build rule for target.
+solver_seq/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\solver_seq.dir\build.make CMakeFiles/solver_seq.dir/build
+.PHONY : solver_seq/fast
+
+#=============================================================================
+# Target rules for targets named test_solver
+
+# Build rule for target.
+test_solver: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 test_solver
+.PHONY : test_solver
+
+# fast build rule for target.
+test_solver/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/build
+.PHONY : test_solver/fast
+
+src/main.obj: src/main.cpp.obj
+.PHONY : src/main.obj
+
+# target to build an object file
+src/main.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/src/main.cpp.obj
+.PHONY : src/main.cpp.obj
+
+src/main.i: src/main.cpp.i
+.PHONY : src/main.i
+
+# target to preprocess a source file
+src/main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/src/main.cpp.i
+.PHONY : src/main.cpp.i
+
+src/main.s: src/main.cpp.s
+.PHONY : src/main.s
+
+# target to generate assembly for a file
+src/main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/src/main.cpp.s
+.PHONY : src/main.cpp.s
+
 src/python_bindings.obj: src/python_bindings.cpp.obj
 .PHONY : src/python_bindings.obj
 
@@ -158,6 +208,7 @@ src/solver.obj: src/solver.cpp.obj
 # target to build an object file
 src/solver.cpp.obj:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\cpp_weather.dir\build.make CMakeFiles/cpp_weather.dir/src/solver.cpp.obj
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/src/solver.cpp.obj
 .PHONY : src/solver.cpp.obj
 
 src/solver.i: src/solver.cpp.i
@@ -166,6 +217,7 @@ src/solver.i: src/solver.cpp.i
 # target to preprocess a source file
 src/solver.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\cpp_weather.dir\build.make CMakeFiles/cpp_weather.dir/src/solver.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/src/solver.cpp.i
 .PHONY : src/solver.cpp.i
 
 src/solver.s: src/solver.cpp.s
@@ -174,7 +226,32 @@ src/solver.s: src/solver.cpp.s
 # target to generate assembly for a file
 src/solver.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\cpp_weather.dir\build.make CMakeFiles/cpp_weather.dir/src/solver.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/src/solver.cpp.s
 .PHONY : src/solver.cpp.s
+
+src/solver_seq.obj: src/solver_seq.cpp.obj
+.PHONY : src/solver_seq.obj
+
+# target to build an object file
+src/solver_seq.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\solver_seq.dir\build.make CMakeFiles/solver_seq.dir/src/solver_seq.cpp.obj
+.PHONY : src/solver_seq.cpp.obj
+
+src/solver_seq.i: src/solver_seq.cpp.i
+.PHONY : src/solver_seq.i
+
+# target to preprocess a source file
+src/solver_seq.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\solver_seq.dir\build.make CMakeFiles/solver_seq.dir/src/solver_seq.cpp.i
+.PHONY : src/solver_seq.cpp.i
+
+src/solver_seq.s: src/solver_seq.cpp.s
+.PHONY : src/solver_seq.s
+
+# target to generate assembly for a file
+src/solver_seq.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\solver_seq.dir\build.make CMakeFiles/solver_seq.dir/src/solver_seq.cpp.s
+.PHONY : src/solver_seq.cpp.s
 
 src/temperature_field.obj: src/temperature_field.cpp.obj
 .PHONY : src/temperature_field.obj
@@ -233,12 +310,20 @@ help:
 	@echo ... edit_cache
 	@echo ... rebuild_cache
 	@echo ... cpp_weather
+	@echo ... solver_seq
+	@echo ... test_solver
+	@echo ... src/main.obj
+	@echo ... src/main.i
+	@echo ... src/main.s
 	@echo ... src/python_bindings.obj
 	@echo ... src/python_bindings.i
 	@echo ... src/python_bindings.s
 	@echo ... src/solver.obj
 	@echo ... src/solver.i
 	@echo ... src/solver.s
+	@echo ... src/solver_seq.obj
+	@echo ... src/solver_seq.i
+	@echo ... src/solver_seq.s
 	@echo ... src/temperature_field.obj
 	@echo ... src/temperature_field.i
 	@echo ... src/temperature_field.s

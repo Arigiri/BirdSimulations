@@ -63,10 +63,14 @@ CMAKE_BINARY_DIR = C:\Users\ASUS\Desktop\BirdSimulations\model\weather\cpp\build
 
 # The main recursive "all" target.
 all: CMakeFiles/cpp_weather.dir/all
+all: CMakeFiles/solver_seq.dir/all
+all: CMakeFiles/test_solver.dir/all
 .PHONY : all
 
 # The main recursive "codegen" target.
 codegen: CMakeFiles/cpp_weather.dir/codegen
+codegen: CMakeFiles/solver_seq.dir/codegen
+codegen: CMakeFiles/test_solver.dir/codegen
 .PHONY : codegen
 
 # The main recursive "preinstall" target.
@@ -75,6 +79,8 @@ preinstall:
 
 # The main recursive "clean" target.
 clean: CMakeFiles/cpp_weather.dir/clean
+clean: CMakeFiles/solver_seq.dir/clean
+clean: CMakeFiles/test_solver.dir/clean
 .PHONY : clean
 
 #=============================================================================
@@ -108,6 +114,70 @@ CMakeFiles/cpp_weather.dir/codegen:
 CMakeFiles/cpp_weather.dir/clean:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\cpp_weather.dir\build.make CMakeFiles/cpp_weather.dir/clean
 .PHONY : CMakeFiles/cpp_weather.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/solver_seq.dir
+
+# All Build rule for target.
+CMakeFiles/solver_seq.dir/all:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\solver_seq.dir\build.make CMakeFiles/solver_seq.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\solver_seq.dir\build.make CMakeFiles/solver_seq.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=C:\Users\ASUS\Desktop\BirdSimulations\model\weather\cpp\build\CMakeFiles --progress-num=6,7 "Built target solver_seq"
+.PHONY : CMakeFiles/solver_seq.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/solver_seq.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start C:\Users\ASUS\Desktop\BirdSimulations\model\weather\cpp\build\CMakeFiles 2
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 CMakeFiles/solver_seq.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start C:\Users\ASUS\Desktop\BirdSimulations\model\weather\cpp\build\CMakeFiles 0
+.PHONY : CMakeFiles/solver_seq.dir/rule
+
+# Convenience name for target.
+solver_seq: CMakeFiles/solver_seq.dir/rule
+.PHONY : solver_seq
+
+# codegen rule for target.
+CMakeFiles/solver_seq.dir/codegen:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\solver_seq.dir\build.make CMakeFiles/solver_seq.dir/codegen
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=C:\Users\ASUS\Desktop\BirdSimulations\model\weather\cpp\build\CMakeFiles --progress-num=6,7 "Finished codegen for target solver_seq"
+.PHONY : CMakeFiles/solver_seq.dir/codegen
+
+# clean rule for target.
+CMakeFiles/solver_seq.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\solver_seq.dir\build.make CMakeFiles/solver_seq.dir/clean
+.PHONY : CMakeFiles/solver_seq.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/test_solver.dir
+
+# All Build rule for target.
+CMakeFiles/test_solver.dir/all: CMakeFiles/solver_seq.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=C:\Users\ASUS\Desktop\BirdSimulations\model\weather\cpp\build\CMakeFiles --progress-num=8,9,10 "Built target test_solver"
+.PHONY : CMakeFiles/test_solver.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/test_solver.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start C:\Users\ASUS\Desktop\BirdSimulations\model\weather\cpp\build\CMakeFiles 5
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\Makefile2 CMakeFiles/test_solver.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start C:\Users\ASUS\Desktop\BirdSimulations\model\weather\cpp\build\CMakeFiles 0
+.PHONY : CMakeFiles/test_solver.dir/rule
+
+# Convenience name for target.
+test_solver: CMakeFiles/test_solver.dir/rule
+.PHONY : test_solver
+
+# codegen rule for target.
+CMakeFiles/test_solver.dir/codegen:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/codegen
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=C:\Users\ASUS\Desktop\BirdSimulations\model\weather\cpp\build\CMakeFiles --progress-num=8,9,10 "Finished codegen for target test_solver"
+.PHONY : CMakeFiles/test_solver.dir/codegen
+
+# clean rule for target.
+CMakeFiles/test_solver.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\test_solver.dir\build.make CMakeFiles/test_solver.dir/clean
+.PHONY : CMakeFiles/test_solver.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

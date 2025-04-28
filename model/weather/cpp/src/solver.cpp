@@ -6,10 +6,9 @@
 #include "../include/solver.h"
 #include <iostream>
 
-Solver::Solver(int width, int height, double dx, double kappa)
-    : width_(width), height_(height), spacing_(dx), kappa_(kappa) {
-    // Constructor không cần khởi tạo thêm
-}
+Solver::Solver(int width, int height, double dx, double kappa, bool parallel)
+    : width_(width), height_(height), spacing_(dx), kappa_(kappa), parallel_(parallel) {}
+
 
 double Solver::computeCFLTimeStep(const std::vector<double>& windX, const std::vector<double>& windY) {
     // Tìm vận tốc lớn nhất trong trường gió
@@ -44,90 +43,39 @@ void Solver::computeGradients(const std::vector<double>& temperature,
     gradY.resize(width_ * height_, 0.0);
     
     #pragma omp parallel for collapse(2)
-    for (int y = 1; y < height_ - 1; ++y) {
-        for (int x = 1; x < width_ - 1; ++x) {
-            int idx = y * width_ + x;
-            
-            // Sử dụng sai phân trung tâm để ước lượng gradient không gian
-            gradX[idx] = (temperature[idx + 1] - temperature[idx - 1]) / (2.0 * spacing_);
-            gradY[idx] = (temperature[idx + width_] - temperature[idx - width_]) / (2.0 * spacing_);
-        }
-    }
-    
-    // Xử lý biên - dùng sai phân một phía
-    #pragma omp parallel for
-    for (int x = 0; x < width_; ++x) {
-        // Biên dưới
-        int idxBottom = 0 * width_ + x;
-        gradY[idxBottom] = (temperature[idxBottom + width_] - temperature[idxBottom]) / spacing_;
-        
-        // Biên trên
-        int idxTop = (height_ - 1) * width_ + x;
-        gradY[idxTop] = (temperature[idxTop] - temperature[idxTop - width_]) / spacing_;
-    }
-    
-    #pragma omp parallel for
     for (int y = 0; y < height_; ++y) {
-        // Biên trái
-        int idxLeft = y * width_ + 0;
-        gradX[idxLeft] = (temperature[idxLeft + 1] - temperature[idxLeft]) / spacing_;
-        
-        // Biên phải
-        int idxRight = y * width_ + (width_ - 1);
-        gradX[idxRight] = (temperature[idxRight] - temperature[idxRight - 1]) / spacing_;
+        for (int x = 0; x < width_; ++x) {
+            int idx = y * width_ + x;
+            int xp1 = (x + 1) % width_;
+            int xm1 = (x - 1 + width_) % width_;
+            int yp1 = (y + 1) % height_;
+            int ym1 = (y - 1 + height_) % height_;
+            gradX[idx] = (temperature[y * width_ + xp1] - temperature[y * width_ + xm1]) / (2.0 * spacing_);
+            gradY[idx] = (temperature[yp1 * width_ + x] - temperature[ym1 * width_ + x]) / (2.0 * spacing_);
+        }
     }
 }
 
 void Solver::computeLaplacian(const std::vector<double>& temperature,
                            std::vector<double>& laplacian) {
     laplacian.resize(width_ * height_, 0.0);
-    
     #pragma omp parallel for collapse(2)
-    for (int y = 1; y < height_ - 1; ++y) {
-        for (int x = 1; x < width_ - 1; ++x) {
+    for (int y = 0; y < height_; ++y) {
+        for (int x = 0; x < width_; ++x) {
             int idx = y * width_ + x;
-            
-            // Sử dụng xấp xỉ sai phân hữu hạn 5 điểm cho Laplacian
+            int xp1 = (x + 1) % width_;
+            int xm1 = (x - 1 + width_) % width_;
+            int yp1 = (y + 1) % height_;
+            int ym1 = (y - 1 + height_) % height_;
             laplacian[idx] = (
-                temperature[idx - 1] + temperature[idx + 1] +
-                temperature[idx - width_] + temperature[idx + width_] - 
+                temperature[y * width_ + xp1] +
+                temperature[y * width_ + xm1] +
+                temperature[yp1 * width_ + x] +
+                temperature[ym1 * width_ + x] -
                 4.0 * temperature[idx]
             ) / (spacing_ * spacing_);
         }
     }
-    
-    // Xử lý biên - điều kiện Neumann (gradient = 0)
-    #pragma omp parallel for
-    for (int x = 1; x < width_ - 1; ++x) {
-        // Biên dưới (y = 0)
-        int idxBottom = 0 * width_ + x;
-        laplacian[idxBottom] = 2.0 * (temperature[idxBottom + width_] - temperature[idxBottom]) / 
-                              (spacing_ * spacing_);
-        
-        // Biên trên (y = height - 1)
-        int idxTop = (height_ - 1) * width_ + x;
-        laplacian[idxTop] = 2.0 * (temperature[idxTop - width_] - temperature[idxTop]) / 
-                           (spacing_ * spacing_);
-    }
-    
-    #pragma omp parallel for
-    for (int y = 1; y < height_ - 1; ++y) {
-        // Biên trái (x = 0)
-        int idxLeft = y * width_ + 0;
-        laplacian[idxLeft] = 2.0 * (temperature[idxLeft + 1] - temperature[idxLeft]) / 
-                            (spacing_ * spacing_);
-        
-        // Biên phải (x = width - 1)
-        int idxRight = y * width_ + (width_ - 1);
-        laplacian[idxRight] = 2.0 * (temperature[idxRight - 1] - temperature[idxRight]) / 
-                             (spacing_ * spacing_);
-    }
-    
-    // Góc
-    laplacian[0] = 0;
-    laplacian[width_ - 1] = 0;
-    laplacian[(height_ - 1) * width_] = 0;
-    laplacian[height_ * width_ - 1] = 0;
 }
 
 void Solver::evaluateTimeDerivative(const std::vector<double>& temperature,

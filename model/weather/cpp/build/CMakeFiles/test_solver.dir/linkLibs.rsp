@@ -1,0 +1,1 @@
+ libsolver_seq.a "C:/Program Files/CodeBlocks/MinGW/lib/gcc/x86_64-w64-mingw32/8.1.0/libgomp.dll.a" "C:/Program Files/CodeBlocks/MinGW/x86_64-w64-mingw32/lib/libmingwthrd.a" -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 

@@ -43,6 +43,16 @@ pybind11_add_module(cpp_weather
     src/python_bindings.cpp
 )
 
+# Thêm target build đơn luồng cho solver_seq
+add_library(solver_seq STATIC src/solver_seq.cpp)
+target_include_directories(solver_seq PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# Thêm target build cho main (test song song và đơn luồng)
+add_executable(test_solver src/main.cpp src/solver.cpp)
+target_link_libraries(test_solver PRIVATE solver_seq)
+target_link_libraries(test_solver PRIVATE OpenMP::OpenMP_CXX)
+target_include_directories(test_solver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # Đặt đích output
 set_target_properties(cpp_weather PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../python"

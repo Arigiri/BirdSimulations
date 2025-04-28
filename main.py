@@ -8,10 +8,54 @@ from pyglet.window import key
 from utils.config import *
 from view.renderer import SimpleRenderer
 from model.fruit import FruitManager
+from draw_temperature_map import draw_temperature_map
+
+# Hàm giúp in an toàn với tiếng Việt
+def print_safe(text_vn, text_en=None):
+    """In thông báo an toàn với tiếng Việt, nếu lỗi UnicodeEncodeError thì in phiên bản tiếng Anh"""
+    try:
+        print(text_vn)
+    except UnicodeEncodeError:
+        if text_en:
+            print(text_en)
+        else:
+            # Tạo phiên bản không dấu
+            text = text_vn.replace("à", "a").replace("á", "a").replace("ả", "a").replace("ã", "a").replace("ạ", "a")
+            text = text.replace("è", "e").replace("é", "e").replace("ẻ", "e").replace("ẽ", "e").replace("ẹ", "e")
+            text = text.replace("ì", "i").replace("í", "i").replace("ỉ", "i").replace("ĩ", "i").replace("ị", "i")
+            text = text.replace("ò", "o").replace("ó", "o").replace("ỏ", "o").replace("õ", "o").replace("ọ", "o")
+            text = text.replace("ù", "u").replace("ú", "u").replace("ủ", "u").replace("ũ", "u").replace("ụ", "u")
+            text = text.replace("ỳ", "y").replace("ý", "y").replace("ỷ", "y").replace("ỹ", "y").replace("ỵ", "y")
+            text = text.replace("đ", "d")
+            print(text)
+
+# Thử import module thời tiết, nếu không được thì bỏ qua
+try:
+    from model.weather.main.weather_integration import WeatherIntegration
+    import numpy as np
+    print_safe("Module thời tiết đã được import thành công", "Weather module imported successfully")
+    WEATHER_AVAILABLE = True
+except ImportError as e:
+    print_safe(f"Không thể import module thời tiết: {e}", f"Cannot import weather module: {e}")
+    WEATHER_AVAILABLE = False
+except Exception as e:
+    print_safe(f"Lỗi không xác định khi import module thời tiết: {e}", f"Unknown error importing weather module: {e}")
+    WEATHER_AVAILABLE = False
 
 # Khởi tạo render và quản lý trái cây
 renderer = None
 fruit_manager = None
+
+# Khởi tạo module thời tiết
+weather_integration = None
+
+# Trạng thái hiển thị thời tiết
+show_weather = False
+show_temperature_map = False
+show_wind_field = False  # Trạng thái hiển thị hướng gió
+temp_map_detail_level = 2  # Mức độ chi tiết ban đầu: 1 = cao nhất, 5 = thấp nhất
+temp_data_update_interval = 0.5  # Khoảng thời gian cập nhật dữ liệu nhiệt độ (giây)
+last_temp_update_time = 0
 
 # Thêm biến toàn cục để theo dõi chim đang được chọn
 selected_bird = None
@@ -64,10 +108,18 @@ def update_bird_info_label():
 
 def update(dt):
     """Cập nhật trạng thái mô phỏng với phương pháp linh hoạt"""
-    global renderer, fruit_manager, selected_bird
-    
+    global renderer, fruit_manager, selected_bird, weather_integration
     current_time = time.time()
     
+    # Cập nhật module thời tiết
+    if WEATHER_AVAILABLE and weather_integration:
+        try:
+            weather_integration.update(dt)
+        except Exception as e:
+            try:
+                print(f"Lỗi khi cập nhật module thời tiết: {e}")
+            except UnicodeEncodeError:
+                print(f"Loi khi cap nhat module thoi tiet: {e}")
     # Cập nhật trái cây
     if fruit_manager:
         fruit_manager.update(current_time, dt)
@@ -120,9 +172,15 @@ def update(dt):
                     
                     # In thông báo để debug và kiểm tra giá trị hunger trước và sau
                     if old_hunger is not None:
-                        print(f"Chim đã ăn quả! Độ đói: {old_hunger:.2f} -> {bird.hunger:.2f} (giảm {bird.hunger - old_hunger:.2f})")
+                        print_safe(
+                            f"Chim đã ăn quả! Độ đói: {old_hunger:.2f} -> {bird.hunger:.2f} (giảm {bird.hunger - old_hunger:.2f})",
+                            f"Bird ate fruit! Hunger: {old_hunger:.2f} -> {bird.hunger:.2f} (reduced by {bird.hunger - old_hunger:.2f})"
+                        )
                     else:
-                        print(f"Chim đã ăn quả! Độ đói hiện tại: {bird.hunger if hasattr(bird, 'hunger') else 'N/A'}")
+                        print_safe(
+                            f"Chim đã ăn quả! Độ đói hiện tại: {bird.hunger if hasattr(bird, 'hunger') else 'N/A'}",
+                            f"Bird ate fruit! Current hunger: {bird.hunger if hasattr(bird, 'hunger') else 'N/A'}"
+                        )
 
         # Khôi phục màu gốc cho chim sau khi hiệu ứng kết thúc
         if hasattr(renderer, 'birds'):
@@ -145,8 +203,25 @@ def update(dt):
 
 def main():
     """Hàm chính để khởi chạy ứng dụng."""
-    global renderer, fruit_manager
-    
+    import argparse
+    global renderer, fruit_manager, weather_integration, WEATHER_AVAILABLE
+    global selected_bird, bird_info_label, flock_info_label
+    global temp_map_detail_level, temp_data_update_interval, last_temp_update_time
+
+    # Parse arguments
+    parser = argparse.ArgumentParser(description='Bird Simulation')
+    parser.add_argument('--heat_scenario', type=str, default='default',
+                        help="Kịch bản khởi tạo nhiệt độ: default, checkerboard, random_sources, stripe, uniform")
+    parser.add_argument('--weather_mode', type=str, default='parallel',
+                        help="Chế độ solver: parallel hoặc seq")
+    args = parser.parse_args()
+    heat_scenario = args.heat_scenario
+    weather_mode = args.weather_mode
+    valid_scenarios = ['default', 'checkerboard', 'random_sources', 'stripe', 'uniform']
+    if heat_scenario not in valid_scenarios:
+        print_safe(f"Kịch bản nhiệt không hợp lệ: {heat_scenario}. Chọn một trong: {valid_scenarios}",
+                   f"Invalid heat scenario: {heat_scenario}. Choose from: {valid_scenarios}")
+        heat_scenario = 'default'
     # Tạo cửa sổ pyglet
     window = pyglet.window.Window(
         width=WINDOW_WIDTH,
@@ -161,6 +236,31 @@ def main():
     # Tạo một số trái cây ban đầu
     fruit_manager.add_random_fruits(5)
     
+    # Khởi tạo module thởi tiết nếu có sẵn
+    if WEATHER_AVAILABLE:
+        try:
+            print_safe("Đang khởi tạo module thởi tiết...", "Initializing weather module...")
+            weather_integration = WeatherIntegration(WINDOW_WIDTH - INFO_PANEL_WIDTH, WINDOW_HEIGHT, mode=weather_mode)
+            # Gọi initialize_weather với kịch bản mong muốn
+            print("Current heat_scenario", heat_scenario)
+            weather_integration.initialize_weather(scenario=heat_scenario)
+            # Thử gọi phương thức get_temperature_field() để kiểm tra hoạt động
+            temp_field = weather_integration.get_temperature_field()
+            if temp_field is not None:
+                print_safe(f"Đã tạo trường nhiệt độ kích thước {temp_field.shape}", 
+                          f"Created temperature field with shape {temp_field.shape}")
+            print_safe(f"Module thởi tiết đã được khởi tạo thành công với kịch bản '{heat_scenario}'!", 
+                       f"Weather module has been initialized successfully with scenario '{heat_scenario}'!")
+        except Exception as e:
+            import traceback
+            print_safe(f"Lỗi khi khởi tạo module thởi tiết: {e}", f"Error initializing weather module: {e}")
+            traceback.print_exc()  # In chi tiết lỗi
+            weather_integration = None
+            WEATHER_AVAILABLE = False  # Tắt tính năng thởi tiết nếu có lỗi
+            weather_integration = None
+    else:
+        weather_integration = None
+        
     # Trạng thái tạm dừng/chạy
     paused = False
     
@@ -183,7 +283,7 @@ def main():
     # Hàm xử lý phím
     @window.event
     def on_key_press(symbol, modifiers):
-        global fruit_manager
+        global fruit_manager, show_weather, show_temperature_map, temp_map_detail_level
         nonlocal paused
         
         if symbol == key.SPACE:
@@ -206,6 +306,52 @@ def main():
             # Cũng đặt lại trái cây
             fruit_manager = FruitManager()
             fruit_manager.add_random_fruits(5)
+            
+        elif symbol == key.W:
+            # Bật/tắt hiển thị module thời tiết
+            show_weather = not show_weather
+            try:
+                print(f"Hiển thị thởi tiết: {'Bật' if show_weather else 'Tắt'}")
+            except UnicodeEncodeError:
+                print(f"Hien thi thoi tiet: {'Bat' if show_weather else 'Tat'}")
+                
+        elif symbol == key.T:
+            # Bật/tắt hiển thị bản đồ nhiệt độ
+            if WEATHER_AVAILABLE and weather_integration:
+                show_temperature_map = not show_temperature_map
+                try:
+                    print(f"Bản đồ nhiệt độ: {'Hiện' if show_temperature_map else 'Ẩn'}")
+                except UnicodeEncodeError:
+                    print(f"Ban do nhiet do: {'Hien' if show_temperature_map else 'An'}")
+                    
+        elif symbol == key.G:
+            # Bật/tắt hiển thị hướng gió
+            if WEATHER_AVAILABLE and weather_integration:
+                global show_wind_field
+                show_wind_field = not show_wind_field
+                try:
+                    print(f"Hiển thị hướng gió: {'Bật' if show_wind_field else 'Tắt'}")
+                except UnicodeEncodeError:
+                    print(f"Hien thi huong gio: {'Bat' if show_wind_field else 'Tat'}")
+        
+        # Điều chỉnh độ chi tiết của bản đồ nhiệt độ bằng phím tắt Shift+UP và Shift+DOWN
+        elif symbol == key.UP and modifiers & key.MOD_SHIFT:
+            if WEATHER_AVAILABLE and weather_integration and show_temperature_map:
+                # Tăng độ chi tiết (giảm giá trị detail_level)
+                temp_map_detail_level = max(1, temp_map_detail_level - 1)
+                from draw_temperature_map import reset_temp_map_cache
+                reset_temp_map_cache()
+                print_safe(f"Độ chi tiết bản đồ nhiệt độ: {temp_map_detail_level} (cao nhất: 1, thấp nhất: 5)", 
+                           f"Temperature map detail level: {temp_map_detail_level} (highest: 1, lowest: 5)")
+        
+        elif symbol == key.DOWN and modifiers & key.MOD_SHIFT:
+            if WEATHER_AVAILABLE and weather_integration and show_temperature_map:
+                # Giảm độ chi tiết (tăng giá trị detail_level)
+                temp_map_detail_level = min(5, temp_map_detail_level + 1)
+                from draw_temperature_map import reset_temp_map_cache
+                reset_temp_map_cache()
+                print_safe(f"Độ chi tiết bản đồ nhiệt độ: {temp_map_detail_level} (cao nhất: 1, thấp nhất: 5)", 
+                           f"Temperature map detail level: {temp_map_detail_level} (highest: 1, lowest: 5)")
     
     @window.event
     def on_mouse_press(x, y, button, modifiers):
@@ -298,7 +444,96 @@ def main():
 
     @window.event
     def on_draw():
+        global last_temp_update_time
         window.clear()
+        
+        # Vẽ bản đồ nhiệt độ nếu được bật
+        if show_temperature_map and WEATHER_AVAILABLE and weather_integration:
+            try:
+                # Kiểm tra xem đã đến thời gian cập nhật dữ liệu mới hay chưa
+                current_time = time.time()
+                force_update = False
+                
+                if current_time - last_temp_update_time >= temp_data_update_interval:
+                    last_temp_update_time = current_time
+                    force_update = True
+                
+                # Gọi hàm vẽ với độ chi tiết và trạng thái cập nhật
+                draw_temperature_map(weather_integration, WEATHER_AVAILABLE, temp_map_detail_level, force_update)
+                
+                # Hiển thị thông tin độ chi tiết của bản đồ nhiệt độ
+                detail_info = pyglet.text.Label(
+                    f'Độ chi tiết bản đồ nhiệt độ: {temp_map_detail_level} (Shift+↑/↓ để điều chỉnh)',
+                    font_name='Arial',
+                    font_size=12,
+                    x=10,
+                    y=10,
+                    color=(255, 255, 255, 200)
+                )
+                detail_info.draw()
+            except Exception as e:
+                import traceback
+                print_safe(
+                    f"Lỗi khi vẽ bản đồ nhiệt độ: {e}",
+                    f"Error drawing temperature map: {e}"
+                )
+                traceback.print_exc()  # In chi tiết lỗi
+        
+        # Vẽ hướng gió nếu được bật
+        if show_wind_field and WEATHER_AVAILABLE and weather_integration:
+            try:
+                # Lấy dữ liệu trường gió
+                wind_x, wind_y = weather_integration.get_wind_field()
+                if wind_x is not None and wind_y is not None:
+                    # Tạo và cập nhật WindFieldRenderer
+                    if not hasattr(weather_integration, 'wind_renderer'):
+                        # Tạo mới nếu chưa có
+                        from model.weather.visualization import WindFieldRenderer
+                        weather_integration.wind_renderer = WindFieldRenderer(
+                            weather_integration.wind_field, 
+                            WINDOW_WIDTH - INFO_PANEL_WIDTH, 
+                            WINDOW_HEIGHT
+                        )
+                    
+                    # Cập nhật dữ liệu gió
+                    weather_integration.wind_renderer.update(wind_x, wind_y)
+                    
+                    # Vẽ mũi tên gió
+                    weather_integration.wind_renderer.draw(
+                        WINDOW_WIDTH - INFO_PANEL_WIDTH, 
+                        WINDOW_HEIGHT, 
+                        scale=3.0,  # Điều chỉnh kích thước mũi tên
+                        arrow_color=(0, 150, 255),  # Màu xanh dương nhạt
+                        opacity=200
+                    )
+                    
+                    # Hiển thị chú thích
+                    legend = pyglet.text.Label(
+                        "Hướng gió (G: Ẩn/Hiện)",
+                        font_name='Arial',
+                        font_size=12,
+                        x=10,
+                        y=35,
+                        color=(0, 150, 255, 255)
+                    )
+                    legend.draw()
+            except Exception as e:
+                import traceback
+                print_safe(
+                    f"Lỗi khi vẽ hướng gió: {e}",
+                    f"Error drawing wind field: {e}"
+                )
+                traceback.print_exc()
+        
+        # Vẽ module thời tiết nếu được bật
+        if show_weather and WEATHER_AVAILABLE and weather_integration:
+            try:
+                weather_integration.draw()
+            except Exception as e:
+                print_safe(
+                    f"Lỗi khi vẽ module thời tiết: {e}",
+                    f"Error drawing weather module: {e}"
+                )
         
         # Vẽ thanh thông tin bên phải
         info_panel = pyglet.shapes.Rectangle(
@@ -368,7 +603,8 @@ def main():
                 y=WINDOW_HEIGHT - 90 - i * 20,
                 color=(200, 200, 200, 255)
             ).draw()
-        
+        fps_display.draw()
+        # return 
         # Vẽ trái cây
         draw_fruits()
         
@@ -435,7 +671,7 @@ def main():
                     line.draw()
         
         # Hiển thị FPS
-        fps_display.draw()
+        
     
     def draw_fruits():
         """Vẽ tất cả trái cây từ fruit manager"""

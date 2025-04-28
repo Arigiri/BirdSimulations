@@ -33,7 +33,9 @@ public:
      * @param dx Khoảng cách lưới
      * @param kappa Hệ số khuếch tán
      */
-    Solver(int width, int height, double dx, double kappa);
+    Solver(int width, int height, double dx, double kappa, bool parallel = true);
+    void setParallel(bool parallel);
+    bool isParallel() const { return parallel_; }
 
     /**
      * @brief Tính toán bước thời gian ổn định dựa trên điều kiện CFL.
@@ -74,6 +76,7 @@ private:
     int height_;       // Chiều cao lưới
     double spacing_;   // Khoảng cách lưới
     double kappa_;     // Hệ số khuếch tán
+    bool parallel_;    // Chế độ song song (true) hoặc tuần tự (false)
 
     /**
      * @brief Tính toán các gradient không gian.

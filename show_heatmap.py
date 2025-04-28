@@ -79,7 +79,7 @@ class HeatmapSimulation:
         self.temp_field.add_heat_source(center_x, center_y, 15.0, self.width // 10)
         
         # Thêm nguồn nhiệt ngẫu nhiên
-        np.random.seed(42)  # Để tái tạo kết quả
+        # np.random.seed(42)  # Để tái tạo kết quả
         num_sources = 5
         for _ in range(num_sources):
             x = np.random.randint(0, self.width)

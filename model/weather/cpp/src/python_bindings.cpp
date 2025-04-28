@@ -38,6 +38,7 @@ PYBIND11_MODULE(cpp_weather, m) {
 
     // Expose Solver class
     py::class_<Solver>(m, "Solver")
+        .def(py::init<int, int, double, double, bool>(), py::arg("width"), py::arg("height"), py::arg("dx"), py::arg("kappa"), py::arg("parallel") = true)
         .def(py::init<int, int, double, double>())
         .def("compute_cfl_time_step", [](Solver& solver, py::array_t<double> windX, py::array_t<double> windY) {
             return solver.computeCFLTimeStep(numpy_to_vector(windX), numpy_to_vector(windY));

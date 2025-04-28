@@ -1,487 +1,195 @@
 """
-Điểm khởi đầu cho ứng dụng mô phỏng đàn chim én.
+Module visualization cho hệ thống mô phỏng thời tiết.
+Cung cấp các class để vẽ bản đồ nhiệt độ và trường gió.
 """
 
+import numpy as np
 import pyglet
-import time
-from pyglet.window import key
-from utils.config import *
-from view.renderer import SimpleRenderer
-from model.fruit import FruitManager
+import math
+from utils.config import GRID_SIZE_X, GRID_SIZE_Y
 
-# Khởi tạo render và quản lý trái cây
-renderer = None
-fruit_manager = None
-
-# Thêm biến toàn cục để theo dõi chim đang được chọn
-selected_bird = None
-bird_info_label = None
-
-# Thêm biến toàn cục mới cho thông tin đàn
-flock_info_label = None
-
-# Định nghĩa kích thước thanh thông tin
-def update_bird_info_label():
-    """Cập nhật label hiển thị thông tin chim được chọn"""
-    global bird_info_label
+class HeatmapRenderer:
+    """Lớp vẽ bản đồ nhiệt độ sử dụng Pyglet"""
     
-    # Xóa label cũ nếu có
-    if bird_info_label:
-        bird_info_label = None
+    def __init__(self, temp_field, width, height):
+        """Khởi tạo bản đồ nhiệt với kích thước xác định
+        
+        Args:
+            temp_field: Đối tượng trường nhiệt độ từ module C++
+            width: Chiều rộng cửa sổ
+            height: Chiều cao cửa sổ
+        """
+        self.temp_field = temp_field
+        self.width = width
+        self.height = height
+        # Khởi tạo mảng nhiệt độ rỗng
+        self.temperature_field = np.zeros((GRID_SIZE_Y, GRID_SIZE_X))
+        # Giá trị nhiệt độ min và max
+        self.min_temp = 0
+        self.max_temp = 100
+        
+    def update(self, temperature_field=None, min_temp=None, max_temp=None):
+        """Cập nhật dữ liệu nhiệt độ"""
+        if temperature_field is not None:
+            self.temperature_field = temperature_field
+        if min_temp is not None:
+            self.min_temp = min_temp
+        if max_temp is not None:
+            self.max_temp = max_temp
     
-    # Nếu có chim được chọn, tạo label thông tin
-    if selected_bird:
-        # Tạo text hiển thị
-        info_text = "\n\nTHÔNG TIN CHIM ĐƯỢC CHỌN\n"
-        info_text += "------------------------\n"
+    def _get_color_for_temperature(self, temperature):
+        """Chuyển đổi nhiệt độ thành màu sắc (gradient từ lạnh đến nóng)"""
+        # Chuẩn hóa nhiệt độ về khoảng [0, 1]
+        temp_range = self.max_temp - self.min_temp
+        if temp_range == 0:  # Tránh chia cho 0
+            normalized_temp = 0.5
+        else:
+            normalized_temp = max(0, min(1, (temperature - self.min_temp) / temp_range))
         
-        # Truy cập trực tiếp thuộc tính của bird thay vì qua get_info()
-        info_text += f"Vị trí: ({selected_bird.position.x:.1f}, {selected_bird.position.y:.1f})\n"
-        info_text += f"Vận tốc: ({selected_bird.velocity.x:.1f}, {selected_bird.velocity.y:.1f})\n"
-        info_text += f"Tốc độ: {selected_bird.velocity.magnitude():.1f}\n"
+        # Ánh xạ từ nhiệt độ sang màu sắc (dùng cơ chế gradient)
+        if normalized_temp < 0.25:  # Màu xanh -> xanh lá
+            r = 0
+            g = int(255 * (normalized_temp / 0.25))
+            b = int(255 * (1 - normalized_temp / 0.25))
+        elif normalized_temp < 0.5:  # Màu xanh lá -> vàng
+            r = int(255 * ((normalized_temp - 0.25) / 0.25))
+            g = 255
+            b = 0
+        elif normalized_temp < 0.75:  # Màu vàng -> cam
+            r = 255
+            g = int(255 * (1 - (normalized_temp - 0.5) / 0.25))
+            b = 0
+        else:  # Màu cam -> đỏ
+            r = 255
+            g = 0
+            b = int(255 * ((normalized_temp - 0.75) / 0.25))
         
-        # Hiển thị thông tin tùy chọn nếu có
-        if hasattr(selected_bird, 'hunger'):
-            info_text += f"Đói: {selected_bird.hunger:.2f}\n"
-        
-        if hasattr(selected_bird, 'lifetime'):
-            info_text += f"Tuổi thọ: {selected_bird.lifetime:.1f}s\n"
-        
-        if hasattr(selected_bird, 'energy'):
-            info_text += f"Năng lượng: {selected_bird.energy:.2f}\n"
-            
-        # Tạo label mới
-        bird_info_label = pyglet.text.Label(
-            info_text,
-            font_name='Arial',
-            font_size=12,
-            x=WINDOW_WIDTH - INFO_PANEL_WIDTH + 10,
-            y=WINDOW_HEIGHT - 250,
-            width=INFO_PANEL_WIDTH - 20,
-            multiline=True,
-            color=(255, 255, 0, 255)
-        )
-
-def update(dt):
-    """Cập nhật trạng thái mô phỏng với phương pháp linh hoạt"""
-    global renderer, fruit_manager, selected_bird
+        return (r, g, b)
     
-    current_time = time.time()
-    
-    # Cập nhật trái cây
-    if fruit_manager:
-        fruit_manager.update(current_time, dt)
-    
-    # Cập nhật renderer và chim
-    if renderer:
-        # Lưu thông tin trái cây vào renderer để các thành phần khác có thể truy cập
-        if fruit_manager:
-            # Cập nhật thuộc tính food_positions và food_ripeness của renderer
-            renderer.food_positions = fruit_manager.positions
-            renderer.food_ripeness = fruit_manager.ripeness
+    def draw(self, window_width, window_height, opacity=150):
+        """Vẽ bản đồ nhiệt lên màn hình"""
+        if self.temperature_field is None:
+            return
         
-        # Gọi phương thức update với tham số phù hợp
-        renderer.update(dt)
+        # Lấy kích thước mảng nhiệt độ
+        grid_height, grid_width = self.temperature_field.shape
         
-        # Xử lý tương tác giữa chim và trái cây
-        if fruit_manager and hasattr(renderer, 'birds'):
-            for bird in renderer.birds:
-                # Chim không ăn nếu đã no
-                if hasattr(bird, 'hunger') and bird.hunger >= 0.8:
-                    continue  # Bỏ qua nếu chim đã no
-
-                if fruit_manager.consume_fruit(bird.position, 15.0):
-                    # Kiểm tra và lưu lại giá trị đói trước khi cho ăn (để hiển thị hiệu ứng)
-                    old_hunger = bird.hunger if hasattr(bird, 'hunger') else None
-                    
-                    # Nếu chim có phương thức feed, gọi nó với giá trị từ config
-                    if hasattr(bird, 'eat'):
-                        bird.eat(FRUIT_NUTRITION_VALUE)  # Sử dụng hằng số từ config
-                        
-                        # Thêm thuộc tính hiển thị thông báo
-                        bird.show_feed_message = True
-                        bird.feed_message_time = current_time + 1.0  # Hiển thị trong 1 giây
-                        
-                        # Lưu thông tin về sự thay đổi đói để hiển thị
-                        if old_hunger is not None:
-                            bird.hunger_change = bird.hunger - old_hunger
-                        
-                        # Thêm hiệu ứng đổi màu tạm thời cho chim (nếu có thuộc tính color)
-                        if hasattr(bird, 'color'):
-                            # Lưu màu gốc nếu chưa được lưu
-                            if not hasattr(bird, 'original_color'):
-                                bird.original_color = tuple(bird.color)
-                            
-                            # Đổi sang màu xanh lá (ăn no)
-                            bird.color = (0, 255, 0, 0)
-                            
-                            # Đặt thời gian để phục hồi màu
-                            bird.color_reset_time = current_time + 0.5  # 0.5 giây
-                    
-                    # In thông báo để debug và kiểm tra giá trị hunger trước và sau
-                    if old_hunger is not None:
-                        print(f"Chim đã ăn quả! Độ đói: {old_hunger:.2f} -> {bird.hunger:.2f} (giảm {bird.hunger - old_hunger:.2f})")
-                    else:
-                        print(f"Chim đã ăn quả! Độ đói hiện tại: {bird.hunger if hasattr(bird, 'hunger') else 'N/A'}")
-
-        # Khôi phục màu gốc cho chim sau khi hiệu ứng kết thúc
-        if hasattr(renderer, 'birds'):
-            for bird in renderer.birds:
-                if hasattr(bird, 'color_reset_time') and current_time >= bird.color_reset_time:
-                    if hasattr(bird, 'original_color'):
-                        bird.color = bird.original_color
-                    # Xóa thuộc tính tạm thời
-                    delattr(bird, 'color_reset_time')
-
-        # Xử lý hiển thị thông báo ăn của chim
-        if hasattr(renderer, 'birds'):
-            for bird in renderer.birds:
-                if hasattr(bird, 'show_feed_message') and bird.show_feed_message:
-                    if current_time >= bird.feed_message_time:
-                        bird.show_feed_message = False
-                    # Nếu đây là chim được chọn, cập nhật thông tin ngay lập tức
-                    if bird is selected_bird:
-                        update_bird_info_label()
-
-def main():
-    """Hàm chính để khởi chạy ứng dụng."""
-    global renderer, fruit_manager
-    
-    # Tạo cửa sổ pyglet
-    window = pyglet.window.Window(
-        width=WINDOW_WIDTH,
-        height=WINDOW_HEIGHT,
-        caption=WINDOW_TITLE
-    )
-    
-    # Khởi tạo renderer và fruit manager
-    renderer = SimpleRenderer(WINDOW_WIDTH, WINDOW_HEIGHT)
-    fruit_manager = FruitManager()
-    
-    # Tạo một số trái cây ban đầu
-    fruit_manager.add_random_fruits(5)
-    
-    # Trạng thái tạm dừng/chạy
-    paused = False
-    
-    # Tạo FPS display 
-    fps_display = pyglet.window.FPSDisplay(window=window)
-    fps_display.label.x = 30
-    fps_display.label.y = 30
-    fps_display.label.font_size = 14
-    
-    # Tạo labels thông tin
-    info_label = pyglet.text.Label(
-        'Birds: 0 | Fruits: 0',
-        font_name='Arial',
-        font_size=14,
-        x=10,
-        y=WINDOW_HEIGHT - 60,
-        color=(255, 255, 255, 255)
-    )
-    
-    # Hàm xử lý phím
-    @window.event
-    def on_key_press(symbol, modifiers):
-        global fruit_manager
-        nonlocal paused
+        # Xác định kích thước mỗi ô trên màn hình
+        cell_width = window_width / grid_width
+        cell_height = window_height / grid_height
         
-        if symbol == key.SPACE:
-            # Tạm dừng/tiếp tục mô phỏng
-            paused = not paused
-        
-        elif symbol == key.B:
-            # Thêm 10 chim mới
-            renderer.add_birds(10)
-        
-        elif symbol == key.F:
-            # Thêm 5 trái cây mới
-            fruit_manager.add_random_fruits(5)
-        
-        elif symbol == key.R:
-            # Đặt lại mô phỏng
-            renderer.birds = []
-            renderer.create_birds(1)
-            
-            # Cũng đặt lại trái cây
-            fruit_manager = FruitManager()
-            fruit_manager.add_random_fruits(5)
-    
-    @window.event
-    def on_mouse_press(x, y, button, modifiers):
-        global selected_bird, bird_info_label
-        
-        # Thêm trái cây tại vị trí click chuột (phải)
-        if button == pyglet.window.mouse.RIGHT:
-            from utils.vector import Vector2D
-            fruit_manager.add_fruit(Vector2D(x, y))
-        
-        # Chọn chim khi click chuột trái
-        elif button == pyglet.window.mouse.LEFT:
-            # Bỏ chọn chim hiện tại nếu có
-            selected_bird = None
-            
-            # Kiểm tra xem có click vào chim nào không
-            for bird in renderer.birds:
-                if bird.contains_point(x, y):
-                    selected_bird = bird
-                    break
-                    
-            # Cập nhật label thông tin chim
-            update_bird_info_label()
-
-    def update_flock_info():
-        """Cập nhật và hiển thị thông tin tổng quan về đàn chim"""
-        global flock_info_label
-        
-        if renderer and hasattr(renderer, 'birds'):
-            birds = renderer.birds
-            
-            if not birds:
-                flock_info_text = "THÔNG TIN ĐÀN\n"
-                flock_info_text += "----------------\n"
-                flock_info_text += "Không có chim nào"
-            else:
-                # Tính toán các thông số của đàn
-                avg_speed = sum(bird.velocity.magnitude() for bird in birds) / len(birds)
-                min_speed = min(bird.velocity.magnitude() for bird in birds)
-                max_speed = max(bird.velocity.magnitude() for bird in birds)
+        # Vẽ các ô nhiệt độ
+        for y in range(grid_height):
+            for x in range(grid_width):
+                # Tính toán vị trí thực tế trên màn hình
+                screen_x = x * cell_width
+                screen_y = y * cell_height
                 
-                # Tính trung tâm đàn
-                center_x = sum(bird.position.x for bird in birds) / len(birds)
-                center_y = sum(bird.position.y for bird in birds) / len(birds)
+                # Lấy giá trị nhiệt độ tại vị trí (x, y)
+                temperature = self.temperature_field[y, x]
                 
-                # Tính bán kính đàn (khoảng cách trung bình từ tâm)
-                distances = [((bird.position.x - center_x)**2 + 
-                             (bird.position.y - center_y)**2)**0.5 for bird in birds]
-                avg_radius = sum(distances) / len(distances)
-                max_radius = max(distances)
+                # Lấy màu sắc dựa trên nhiệt độ
+                color = self._get_color_for_temperature(temperature)
                 
-                # Tính các thông số khác
-                hunger_stats = []
-                for bird in birds:
-                    if hasattr(bird, 'hunger'):
-                        hunger_stats.append(bird.hunger)
-                
-                # Tạo text hiển thị
-                flock_info_text = "THÔNG TIN ĐÀN\n"
-                flock_info_text += "----------------\n"
-                flock_info_text += f"Số lượng: {len(birds)}\n"
-                flock_info_text += f"Tốc độ TB: {avg_speed:.1f}\n"
-                flock_info_text += f"Tốc độ (min/max): {min_speed:.1f}/{max_speed:.1f}\n"
-                flock_info_text += f"Tâm đàn: ({center_x:.1f}, {center_y:.1f})\n"
-                flock_info_text += f"Bán kính TB: {avg_radius:.1f}\n"
-                flock_info_text += f"Bán kính max: {max_radius:.1f}\n"
-                
-                if hunger_stats:
-                    avg_hunger = sum(hunger_stats) / len(hunger_stats)
-                    flock_info_text += f"Độ đói TB: {avg_hunger:.2f}\n"
-            
-            # Tạo hoặc cập nhật label
-            if not flock_info_label:
-                flock_info_label = pyglet.text.Label(
-                    flock_info_text,
-                    font_name='Arial',
-                    font_size=12,
-                    x=WINDOW_WIDTH - INFO_PANEL_WIDTH + 10,  # Căn lề trái của panel
-                    y=WINDOW_HEIGHT - 50,  # Đặt ở phía trên của panel
-                    width=INFO_PANEL_WIDTH - 20,  # Để có biên 10px ở mỗi bên
-                    multiline=True,
-                    color=(255, 255, 255, 255)
+                # Vẽ hình chữ nhật biểu diễn nhiệt độ
+                rect = pyglet.shapes.Rectangle(
+                    x=screen_x, 
+                    y=screen_y,
+                    width=cell_width,
+                    height=cell_height,
+                    color=color
                 )
-            else:
-                flock_info_label.text = flock_info_text
-        
-        # Vẽ label nếu có
-        if flock_info_label:
-            flock_info_label.draw()
+                rect.opacity = opacity
+                rect.draw()
 
-    @window.event
-    def on_draw():
-        window.clear()
+class WindFieldRenderer:
+    """Lớp vẽ trường gió sử dụng Pyglet"""
+    
+    def __init__(self, wind_field, width, height):
+        """Khởi tạo trường gió với kích thước xác định
         
-        # Vẽ thanh thông tin bên phải
-        info_panel = pyglet.shapes.Rectangle(
-            x=WINDOW_WIDTH - INFO_PANEL_WIDTH,
-            y=0,
-            width=INFO_PANEL_WIDTH,
-            height=WINDOW_HEIGHT,
-            color=(30, 30, 30)  # Màu xám đậm
-        )
-        info_panel.opacity = 200  # Hơi trong suốt
-        info_panel.draw()
+        Args:
+            wind_field: Đối tượng trường gió từ module C++
+            width: Chiều rộng cửa sổ
+            height: Chiều cao cửa sổ
+        """
+        self.wind_field = wind_field
+        self.width = width
+        self.height = height
+        # Khởi tạo mảng vectơ gió rỗng (u, v là các thành phần vận tốc)
+        self.wind_field_u = np.zeros((GRID_SIZE_Y, GRID_SIZE_X))  # thành phần gió theo hướng x
+        self.wind_field_v = np.zeros((GRID_SIZE_Y, GRID_SIZE_X))  # thành phần gió theo hướng y
+    
+    def update(self, wind_field_u=None, wind_field_v=None):
+        """Cập nhật dữ liệu trường gió"""
+        if wind_field_u is not None:
+            self.wind_field_u = wind_field_u
+        if wind_field_v is not None:
+            self.wind_field_v = wind_field_v
+    
+    def draw(self, window_width, window_height, scale=1.0, arrow_color=(0, 0, 255), opacity=200):
+        """Vẽ trường gió lên màn hình với các mũi tên"""
+        if self.wind_field_u is None or self.wind_field_v is None:
+            return
         
-        # Vẽ tiêu đề thanh thông tin
-        pyglet.text.Label(
-            'BẢNG ĐIỀU KHIỂN',
-            font_name='Arial',
-            font_size=16,
-            x=WINDOW_WIDTH - INFO_PANEL_WIDTH + (INFO_PANEL_WIDTH // 2),
-            y=WINDOW_HEIGHT - 25,
-            anchor_x='center',
-            anchor_y='center',
-            color=(200, 200, 255, 255)
-        ).draw()
+        # Lấy kích thước mảng trường gió
+        grid_height, grid_width = self.wind_field_u.shape
         
-        # Vẽ đường kẻ phân cách
-        separator = pyglet.shapes.Line(
-            WINDOW_WIDTH - INFO_PANEL_WIDTH + 10, WINDOW_HEIGHT - 40,
-            WINDOW_WIDTH - 10, WINDOW_HEIGHT - 40,
-            color=(100, 100, 100)
-        )
-        separator.width = 2
-        separator.draw()
+        # Xác định kích thước mỗi ô trên màn hình
+        cell_width = window_width / grid_width
+        cell_height = window_height / grid_height
         
-        # Vẽ tiêu đề
-        pyglet.text.Label(
-            'Mô phỏng đàn chim én - Boids',
-            font_name='Arial',
-            font_size=24,
-            x=(WINDOW_WIDTH - INFO_PANEL_WIDTH)//2,
-            y=WINDOW_HEIGHT - 30,
-            anchor_x='center',
-            anchor_y='center'
-        ).draw()
-        
-        # Cập nhật và vẽ label thông tin
-        info_label.text = (f'Birds: {renderer.get_bird_count()} | '
-                          f'Fruits: {len(fruit_manager.fruits)} | '
-                          f'{"PAUSED" if paused else "RUNNING"}')
-        info_label.draw()
-        
-        # Vẽ hướng dẫn
-        instructions = [
-            'SPACE: Tạm dừng/Tiếp tục',
-            'B: Thêm 10 chim',
-            'F: Thêm 5 trái cây',
-            'R: Đặt lại mô phỏng',
-            'Click trái: Chọn chim',
-            'Click phải: Tạo trái cây'
-        ]
-        
-        for i, text in enumerate(instructions):
-            pyglet.text.Label(
-                text,
-                font_name='Arial',
-                font_size=12,
-                x=10,
-                y=WINDOW_HEIGHT - 90 - i * 20,
-                color=(200, 200, 200, 255)
-            ).draw()
-        
-        # Vẽ trái cây
-        draw_fruits()
-        
-        # Vẽ các con chim
-        renderer.draw()
-        
-        # Vẽ thông báo cho các chim đang ăn
-        if hasattr(renderer, 'birds'):
-            for bird in renderer.birds:
-                if hasattr(bird, 'show_feed_message') and bird.show_feed_message:
-                    if hasattr(bird, 'hunger_change'):
-                        message = f"+{bird.hunger_change:.1f}"
-                    else:
-                        message = "Đã ăn!"
+        # Vẽ các mũi tên biểu diễn hướng và độ mạnh của gió
+        for y in range(grid_height):
+            for x in range(grid_width):
+                # Chỉ vẽ một số điểm để không quá dày đặc
+                if x % 3 == 0 and y % 3 == 0:
+                    # Tính toán vị trí trung tâm của ô trên màn hình
+                    center_x = (x + 0.5) * cell_width
+                    center_y = (y + 0.5) * cell_height
                     
-                    # Tạo nhãn thông báo trên đầu chim
-                    pyglet.text.Label(
-                        message,
-                        font_name='Arial',
-                        font_size=10,
-                        x=bird.position.x,
-                        y=bird.position.y + 20,  # Hiển thị phía trên chim
-                        anchor_x='center',
-                        anchor_y='center',
-                        color=(0, 255, 0, 255)
-                    ).draw()
-        
-        # Hiển thị thông tin đàn chim
-        if flock_info_label:
-            flock_info_label.draw()
-        
-        # Hiển thị thông tin chim được chọn
-        if bird_info_label:
-            # Vẽ đường kẻ phân cách trên thông tin chim
-            separator2 = pyglet.shapes.Line(
-                WINDOW_WIDTH - INFO_PANEL_WIDTH + 10, WINDOW_HEIGHT - 230,
-                WINDOW_WIDTH - 10, WINDOW_HEIGHT - 230,
-                color=(100, 100, 100)
-            )
-            separator2.width = 1
-            separator2.draw()
-            
-            # Vẽ label
-            bird_info_label.draw()
-            
-            # Đánh dấu chim được chọn bằng viền sáng
-            if selected_bird:
-                vertices = selected_bird.get_vertices()
-                
-                # Vẽ đường viền quanh chim được chọn
-                pyglet.gl.glLineWidth(2)
-                for i in range(len(vertices)):
-                    # Lấy điểm hiện tại và điểm tiếp theo
-                    start = vertices[i]
-                    end = vertices[(i + 1) % len(vertices)]  # Quay lại điểm đầu nếu là điểm cuối cùng
+                    # Lấy thành phần gió tại vị trí (x, y)
+                    u = self.wind_field_u[y, x]
+                    v = self.wind_field_v[y, x]
                     
-                    # Vẽ đường thẳng nối hai điểm
-                    line = pyglet.shapes.Line(
-                        start[0], start[1], 
-                        end[0], end[1], 
-                        color=(255, 255, 0)
-                    )
-                    line.width = 2
-                    line.draw()
-        
-        # Hiển thị FPS
-        fps_display.draw()
-    
-    def draw_fruits():
-        """Vẽ tất cả trái cây từ fruit manager"""
-        for fruit in fruit_manager.fruits:
-            # Lấy màu sắc dựa trên độ chín
-            color = fruit.get_color()
-            
-            # Vẽ hình tròn đại diện cho trái cây
-            x, y = fruit.position.x, fruit.position.y
-            radius = fruit.radius
-            
-            # Tạo hình tròn với 16 đỉnh
-            circle = pyglet.shapes.Circle(
-                x=x, y=y, 
-                radius=radius,
-                color=color[:3],  # RGB
-                batch=None
-            )
-            circle.opacity = color[3]  # Alpha
-            circle.draw()
-    
-    def update_with_pause(dt):
-        if not paused:
-            update(dt)
-        
-        # Cập nhật thông tin đàn chim theo thời gian thực
-        update_flock_info()
-        
-        # Cập nhật thông tin chim được chọn theo thời gian thực
-        if selected_bird:
-            update_bird_info_label()
-    
-    # Đăng ký hàm update với khoảng thời gian 1/60 giây
-    pyglet.clock.schedule_interval(update_with_pause, 1/60.0)
-    
-    # Lập lịch tạo trái cây mới theo thời gian
-    def spawn_random_fruit(dt):
-        if not paused and fruit_manager and len(fruit_manager.fruits) < 50:  # Giới hạn tối đa 50 trái cây
-            # 20% cơ hội tạo trái cây mới mỗi 2 giây
-            import random
-            if random.random() < 0.2:
-                fruit_manager.add_random_fruits(1)
-                
-    pyglet.clock.schedule_interval(spawn_random_fruit, 2.0)
-    
-    pyglet.app.run()
-
-if __name__ == "__main__":
-    main()
+                    # Tính độ dài mũi tên dựa trên tốc độ gió
+                    magnitude = np.sqrt(u*u + v*v)
+                    arrow_length = magnitude * scale * cell_width * 0.8  # điều chỉnh độ dài phù hợp
+                    
+                    if magnitude > 0:
+                        # Tính toán điểm cuối của mũi tên
+                        end_x = center_x + arrow_length * u / magnitude
+                        end_y = center_y + arrow_length * v / magnitude
+                        
+                        # Vẽ thân mũi tên
+                        line = pyglet.shapes.Line(
+                            center_x, center_y, end_x, end_y,
+                            color=arrow_color, width=1
+                        )
+                        line.opacity = opacity
+                        line.draw()
+                        
+                        # Vẽ đầu mũi tên
+                        arrow_head_size = min(cell_width, cell_height) * 0.2
+                        angle = math.atan2(v, u)
+                        
+                        # Tính toán 2 điểm cho đầu mũi tên
+                        head1_x = end_x - arrow_head_size * math.cos(angle + math.pi/6)
+                        head1_y = end_y - arrow_head_size * math.sin(angle + math.pi/6)
+                        head2_x = end_x - arrow_head_size * math.cos(angle - math.pi/6)
+                        head2_y = end_y - arrow_head_size * math.sin(angle - math.pi/6)
+                        
+                        # Vẽ 2 đường cho đầu mũi tên
+                        head_line1 = pyglet.shapes.Line(
+                            end_x, end_y, head1_x, head1_y,
+                            color=arrow_color, width=1
+                        )
+                        head_line1.opacity = opacity
+                        head_line1.draw()
+                        
+                        head_line2 = pyglet.shapes.Line(
+                            end_x, end_y, head2_x, head2_y,
+                            color=arrow_color, width=1
+                        )
+                        head_line2.opacity = opacity
+                        head_line2.draw()

@@ -1,0 +1,2 @@
+C:\PROGRA~1\CODEBL~1\MinGW\bin\ar.exe qc libsolver_seq.a CMakeFiles/solver_seq.dir/src/solver_seq.cpp.obj
+C:\PROGRA~1\CODEBL~1\MinGW\bin\ranlib.exe libsolver_seq.a

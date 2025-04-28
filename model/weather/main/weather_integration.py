@@ -5,6 +5,7 @@ import sys
 from utils.vector import Vector2D
 from utils.config import *
 from model.weather.visualization import HeatmapRenderer, WindFieldRenderer
+from .utils import print_safe
 
 # Thêm thư mục chứa module C++ vào path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -17,7 +18,7 @@ class WeatherIntegration:
     Lớp tích hợp module thời tiết C++ vào mô phỏng đàn chim.
     """
     
-    def __init__(self, width, height):
+    def __init__(self, width, height, mode='parallel'):
         """
         Khởi tạo lớp tích hợp thời tiết.
         
@@ -50,6 +51,7 @@ class WeatherIntegration:
         # Flag để kiểm tra xem module C++ đã được khởi tạo chưa
         self.initialized = False
         
+        self.scenario = None
         # Thử tải module C++
         try:
             # Import module C++
@@ -57,8 +59,10 @@ class WeatherIntegration:
             self.cpp_weather = cpp_weather
             
             # Khởi tạo các đối tượng C++
+            # Chọn chế độ song song hoặc đơn luồng
+            parallel = True if mode == 'parallel' else False
             self.solver = self.cpp_weather.Solver(
-                self.grid_width, self.grid_height, self.dx, self.kappa
+                self.grid_width, self.grid_height, self.dx, self.kappa, parallel
             )
             self.temp_field = self.cpp_weather.TemperatureField(
                 self.grid_width, self.grid_height
@@ -68,7 +72,7 @@ class WeatherIntegration:
             )
             
             # Đặt nhiệt độ ban đầu và tạo gió
-            self.initialize_weather()
+            self.initialize_weather(self.scenario)
             
             # Khởi tạo các lớp renderer
             self.heatmap_renderer = HeatmapRenderer(
@@ -81,55 +85,87 @@ class WeatherIntegration:
             # Đánh dấu đã khởi tạo thành công
             self.initialized = True
             
-            print("Khởi tạo module thời tiết C++ thành công")
+            print_safe("Khởi tạo module thời tiết C++ thành công", "Weather C++ module initialized successfully")
         except ImportError as e:
             # Fix encoding for Windows console
-            try:
-                print(f"Không thể tải module C++ 'cpp_weather': {e}")
-            except UnicodeEncodeError:
-                print(f"Could not load C++ module 'cpp_weather': {e}")
+            print_safe(f"Không thể tải module C++ 'cpp_weather': {e}", f"Could not load C++ module 'cpp_weather': {e}")
             self.initialized = False
         except Exception as e:
             # Fix encoding for Windows console
-            try:
-                print(f"Lỗi khi khởi tạo module thời tiết: {e}")
-            except UnicodeEncodeError:
-                print(f"Error initializing weather module: {e}")
+            print_safe(f"Lỗi khi khởi tạo module thời tiết: {e}", f"Error initializing weather module: {e}")
             self.initialized = False
     
-    def initialize_weather(self):
+    def initialize_weather(self, scenario='default'):
         """
-        Khởi tạo điều kiện thời tiết ban đầu.
+        Khởi tạo điều kiện thời tiết ban đầu với nhiều kịch bản.
+        scenario: 'default', 'checkerboard', 'random_sources', 'stripe', 'uniform'
         """
+        print("Current heat scenario before:", scenario, self.scenario)
+        if self.scenario is None:
+            self.scenario = scenario
         if not self.initialized:
             return
-            
-        # Đặt nhiệt độ đồng nhất làm nền
-        self.temp_field.set_uniform(INITIAL_TEMPERATURE)
-            
-        # Tạo gradient nhiệt độ theo hướng North-South
-        try:
-            # Thử dùng GradientDirection nếu có
-            self.temp_field.set_gradient(
-                15.0, 30.0, self.cpp_weather.GradientDirection.NORTH_SOUTH
-            )
-        except Exception:
-            # Nếu không có, tự tạo gradient thủ công
+        print("Current heat scenario after:", self.scenario)
+        import numpy as np
+        if self.scenario == 'default':
+            # Gradient Bắc-Nam + nhiều nguồn nhiệt (như hiện tại)
+            self.temp_field.set_uniform(INITIAL_TEMPERATURE)
+            try:
+                self.temp_field.set_gradient(
+                    15.0, 30.0, self.cpp_weather.GradientDirection.NORTH_SOUTH
+                )
+            except Exception:
+                temps = self.temp_field.get_temperature().reshape(self.grid_height, self.grid_width)
+                for i in range(self.grid_height):
+                    t = i / self.grid_height
+                    row_temp = 15 + 15 * t
+                    temps[i, :] = row_temp
+                self.temp_field.set_temperature(temps.flatten())
+            heat_sources = [
+                (int(self.grid_width * 0.1), int(self.grid_height * 0.1)),
+                (int(self.grid_width * 0.1), int(self.grid_height * 0.9)),
+                (int(self.grid_width * 0.9), int(self.grid_height * 0.1)),
+                (int(self.grid_width * 0.9), int(self.grid_height * 0.9)),
+                (self.grid_width // 2, self.grid_height // 2)
+            ]
+            for x, y in heat_sources:
+                self.temp_field.add_heat_source(x, y, 15.0, self.grid_width // 8)
+
+        elif self.scenario == 'checkerboard':
+            # Mẫu bàn cờ
             temps = self.temp_field.get_temperature().reshape(self.grid_height, self.grid_width)
             for i in range(self.grid_height):
-                t = i / self.grid_height  # 0 -> 1
-                row_temp = 15 + 15 * t  # 15 -> 30
-                temps[i, :] = row_temp
+                for j in range(self.grid_width):
+                    temps[i, j] = 30.0 if (i + j) % 2 == 0 else 15.0
             self.temp_field.set_temperature(temps.flatten())
-            
-        # Thêm một nguồn nhiệt ở giữa
-        center_x = self.grid_width // 2
-        center_y = self.grid_height // 2
-        self.temp_field.add_heat_source(center_x, center_y, 15.0, self.grid_width // 8)
-            
+
+        elif self.scenario == 'random_sources':
+            # Nhiều nguồn nhiệt ngẫu nhiên
+            self.temp_field.set_uniform(INITIAL_TEMPERATURE)
+            import random
+            for _ in range(10):
+                x = random.randint(0, self.grid_width-1)
+                y = random.randint(0, self.grid_height-1)
+                self.temp_field.add_heat_source(x, y, 15.0, self.grid_width // 12)
+
+        elif self.scenario == 'stripe':
+            # Một dải nhiệt độ cao ở giữa
+            temps = self.temp_field.get_temperature().reshape(self.grid_height, self.grid_width)
+            stripe_start = self.grid_width // 3
+            stripe_end = self.grid_width // 3 * 2
+            temps[:, stripe_start:stripe_end] = 35.0
+            self.temp_field.set_temperature(temps.flatten())
+
+        elif self.scenario == 'uniform':
+            # Toàn bộ trường nhiệt độ đồng nhất
+            self.temp_field.set_uniform(25.0)
+
+        else:
+            # fallback về mặc định
+            self.temp_field.set_uniform(INITIAL_TEMPERATURE)
+
         # Tạo trường gió
         self.wind_field.generate_gaussian_field(5, WIND_STRENGTH, self.grid_width // 8)
-            
         # Cập nhật thống kê nhiệt độ
         self.update_statistics()
     
@@ -181,6 +217,7 @@ class WeatherIntegration:
         new_temp = self.solver.solve_rk4_step(
             temp_data, wind_x, wind_y, sim_dt
         )
+        print("diff New temperature:", np.sum(new_temp - temp_data))
         self.temp_field.set_temperature(new_temp)
             
         # Thêm nguồn nhiệt nếu đang nhấn chuột
@@ -210,13 +247,12 @@ class WeatherIntegration:
         # Cập nhật thời gian mô phỏng
         self.time += sim_dt
         self.steps += 1
-    
+        print("Updated statistics:", self.statistics)
     def update_statistics(self):
         """Cập nhật thống kê nhiệt độ."""
         try:
             # Lấy dữ liệu nhiệt độ
             temp_data = self.temp_field.get_temperature()
-            
             # Tính toán thống kê
             self.statistics = {
                 "min_temp": np.min(temp_data),
@@ -323,7 +359,7 @@ class WeatherIntegration:
             
         # Phím R: Đặt lại trường nhiệt độ và gió
         if symbol == key.R:
-            self.initialize_weather()
+            self.initialize_weather(self.scenario)
             return True
             
         # Phím C: Tạo mẫu bàn cờ
@@ -434,7 +470,7 @@ class WeatherIntegration:
             
             return Vector2D(wind_x[grid_y, grid_x], wind_y[grid_y, grid_x])
         except Exception as e:
-            print(f"Lỗi khi lấy gió: {e}")
+            print_safe(f"Lỗi khi lấy gió: {e}", f"Error getting wind: {e}")
             return Vector2D(0, 0)
     
     def get_weather_for_birds(self, x, y):
