@@ -42,7 +42,7 @@ class RealtimeWeatherSimulation:
         
         # Import module C++
         try:
-            import cpp_weather
+            from model.weather.python.core import cpp_weather
             self.cpp_weather = cpp_weather
             print("Đã tải module C++ thành công")
         except ImportError as e:

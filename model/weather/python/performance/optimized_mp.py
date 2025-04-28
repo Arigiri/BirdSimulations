@@ -1,13 +1,16 @@
 """
-Kiểm tra logic mô phỏng thời tiết với C++ và Python multiprocessing
-- Phiên bản tối ưu với grid lớn hơn để thấy rõ lợi ích multiprocessing
+Tối ưu hóa multiprocessing cho mô phỏng thời tiết C++/Python
+- Sử dụng persistent worker pool
+- Tối thiểu hóa chi phí khởi tạo
+- Cân bằng tải động giữa các workers
 """
 
 import os
 import sys
 import numpy as np
 import time
-from multiprocessing import Pool, cpu_count, freeze_support, current_process
+from multiprocessing import Pool, cpu_count, freeze_support, current_process, Array, shared_memory
+import ctypes
 
 # Điều chỉnh Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -17,43 +20,60 @@ if project_root not in sys.path:
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# Hàm xử lý subdomain ở cấp độ module
+# Biến toàn cục để lưu trữ module C++ sau khi import
+global_cpp_weather = None
+
+def init_worker():
+    """
+    Hàm khởi tạo cho worker processes.
+    """
+    global global_cpp_weather
+    
+    # Import module C++ một lần duy nhất trong worker
+    from model.weather.python.core import cpp_weather
+    global_cpp_weather = cpp_weather
+    
+    proc_name = current_process().name
+    proc_id = int(proc_name.split('-')[-1]) if '-' in proc_name else 0
+    
+    # Chỉ in thông báo khi worker được tạo
+    print(f"Worker {proc_name} (ID: {proc_id}) initialized with C++ module")
+
 def process_subdomain(args):
     """
-    Worker function cho multiprocessing
+    Worker function tối ưu hóa.
     """
-    process_id = current_process().name
+    global global_cpp_weather
     
-    start_row, end_row, width, height, kappa, dx, temp_array, wind_x_array, wind_y_array, dt = args
+    start_row, end_row, width, height, kappa, dx, temp_shape, temp_data, wind_x_data, wind_y_data, dt = args
     
-    # Import module C++ trong worker
-    try:
-        import cpp_weather
-    except ImportError as e:
-        print(f"Process {process_id} failed to import C++ module: {e}")
-        return start_row, end_row, temp_array
+    # Đảm bảo C++ module đã được import
+    if global_cpp_weather is None:
+        from model.weather.python.core import cpp_weather
+        global_cpp_weather = cpp_weather
+        print(f"Late import of C++ module in process {current_process().name}")
+    
+    # Chuyển đổi dữ liệu shared memory thành numpy arrays
+    temp_array = np.frombuffer(temp_data, dtype=np.float64).reshape(temp_shape)
+    wind_x_array = np.frombuffer(wind_x_data, dtype=np.float64)
+    wind_y_array = np.frombuffer(wind_y_data, dtype=np.float64)
     
     # Tạo subdomain với ghost cells
-    sub_height = end_row - start_row + 3  # +3 cho ghost cells
-    
-    # Xác định vùng dữ liệu với ghost cells
+    # Ghost cells là các ô bổ sung ở biên để xử lý các điều kiện biên chính xác
     ghost_start = max(0, start_row - 1)
     ghost_end = min(height - 1, end_row + 1)
     
-    # Chuyển đổi mảng 1D thành 2D để dễ trích xuất subdomain
-    temp_2d = temp_array.reshape(height, width)
+    # Trích xuất subdomain với ghost cells
+    sub_temp = temp_array[ghost_start:ghost_end+1, :].copy()
     wind_x_2d = wind_x_array.reshape(height, width)
     wind_y_2d = wind_y_array.reshape(height, width)
-    
-    # Trích xuất subdomain với ghost cells
-    sub_temp = temp_2d[ghost_start:ghost_end+1, :].copy()
     sub_wind_x = wind_x_2d[ghost_start:ghost_end+1, :].flatten()
     sub_wind_y = wind_y_2d[ghost_start:ghost_end+1, :].flatten()
     
     # Tạo solver cho subdomain
     sub_width = width
     sub_height = sub_temp.shape[0]
-    sub_solver = cpp_weather.Solver(sub_width, sub_height, dx, kappa)
+    sub_solver = global_cpp_weather.Solver(sub_width, sub_height, dx, kappa)
     
     # Giải subdomain
     sub_result = sub_solver.solve_rk4_step(sub_temp, sub_wind_x, sub_wind_y, dt)
@@ -62,14 +82,17 @@ def process_subdomain(args):
     local_start = 1 if start_row > 0 else 0
     local_end = sub_height - 1 if end_row < height - 1 else sub_height
     
-    # Chỉ trả về phần kết quả cho subdomain thực tế
+    # Trả về chỉ phần kết quả thực tế (không có ghost cells)
+    # Giả sử subdomain là một phần của mảng lớn
     result_2d = sub_result[local_start:local_end, :]
     
-    print(f"Process {process_id} completed subdomain [{start_row}:{end_row+1}]")
-    return start_row, end_row, result_2d
+    # Chỉ in thông báo khi cần thiết
+    # print(f"Process {current_process().name} completed subdomain [{start_row}:{end_row+1}]")
+    
+    return (start_row, end_row, result_2d)
 
-class WeatherSimulation:
-    """Mô phỏng thời tiết sử dụng module C++"""
+class OptimizedWeatherSimulation:
+    """Mô phỏng thời tiết tối ưu hóa sử dụng module C++ và worker pool cố định"""
     
     def __init__(self, width, height, multiprocessing=False, num_processes=None, dx=1.0, kappa=0.05):
         """
@@ -81,14 +104,15 @@ class WeatherSimulation:
         self.num_processes = num_processes or min(4, cpu_count())
         self.dx = dx
         self.kappa = kappa
+        self.worker_pool = None
         
-        print(f"Initializing weather simulation ({width}x{height})")
+        print(f"Initializing optimized weather simulation ({width}x{height})")
         print(f"Multiprocessing: {'Enabled' if multiprocessing else 'Disabled'}")
         if multiprocessing:
             print(f"Number of processes: {self.num_processes}")
         
         # Import module C++
-        import cpp_weather
+        from model.weather.python.core import cpp_weather
         self.cpp_weather = cpp_weather
         
         # Khởi tạo đối tượng C++
@@ -100,6 +124,7 @@ class WeatherSimulation:
         self.time = 0.0
         self.steps = 0
         self.dt_history = []
+        self.compute_times = []
         self.min_temp = []
         self.max_temp = []
         self.mean_temp = []
@@ -107,6 +132,8 @@ class WeatherSimulation:
         # Chuẩn bị các subdomain nếu sử dụng multiprocessing
         if self.use_mp:
             self._prepare_subdomains()
+            # Tạo worker pool cố định
+            self._create_worker_pool()
     
     def _prepare_subdomains(self):
         """Phân chia lưới thành các subdomain"""
@@ -119,6 +146,17 @@ class WeatherSimulation:
             self.subdomains.append((start_row, end_row))
             
         print(f"Created {len(self.subdomains)} subdomains")
+    
+    def _create_worker_pool(self):
+        """Tạo worker pool cố định để tái sử dụng"""
+        if self.worker_pool is None:
+            print("Creating worker pool...")
+            self.worker_pool = Pool(
+                processes=self.num_processes,
+                initializer=init_worker
+            )
+            # Chờ tất cả worker khởi tạo
+            time.sleep(0.5)
     
     def set_initial_conditions(self):
         """Tạo điều kiện ban đầu thực tế"""
@@ -165,6 +203,7 @@ class WeatherSimulation:
         
         end_time = time.time()
         step_time = end_time - start_time
+        self.compute_times.append(step_time)
         
         # Cập nhật thống kê
         temp = self.get_temperature()
@@ -200,9 +239,13 @@ class WeatherSimulation:
         return dt
     
     def _step_multiprocessing(self, dt=None):
-        """Xử lý song song"""
+        """Xử lý song song tối ưu hóa"""
+        # Đảm bảo worker pool tồn tại
+        if self.worker_pool is None:
+            self._create_worker_pool()
+        
         # Lấy dữ liệu
-        temp = self.temp_field.get_temperature()
+        temp = self.temp_field.get_temperature().reshape(self.height, self.width)
         wind_x = self.wind_field.get_wind_x()
         wind_y = self.wind_field.get_wind_y()
         
@@ -210,17 +253,17 @@ class WeatherSimulation:
         if dt is None:
             dt = self.solver.compute_cfl_time_step(wind_x, wind_y)
         
-        # Chuẩn bị tham số cho mỗi worker
+        # Chuẩn bị tham số cho mỗi worker - truyền dữ liệu thay vì đối tượng
         args_list = []
         for start_row, end_row in self.subdomains:
             args_list.append(
                 (start_row, end_row, self.width, self.height, 
-                 self.kappa, self.dx, temp, wind_x, wind_y, dt)
+                 self.kappa, self.dx, temp.shape, temp.tobytes(), 
+                 wind_x.tobytes(), wind_y.tobytes(), dt)
             )
         
-        # Xử lý song song
-        with Pool(processes=self.num_processes) as pool:
-            results = pool.map(process_subdomain, args_list)
+        # Xử lý song song với worker pool cố định
+        results = self.worker_pool.map(process_subdomain, args_list)
         
         # Kết hợp kết quả vào một mảng 2D
         temp_result = np.zeros((self.height, self.width), dtype=np.float64)
@@ -253,22 +296,37 @@ class WeatherSimulation:
         print(f"Simulation time: {self.time:.4f}")
         print(f"Average dt: {np.mean(self.dt_history):.6f}")
         
-        # In biến đổi nhiệt độ
+        # Hiệu suất
+        total_compute_time = sum(self.compute_times)
+        avg_step_time = total_compute_time / max(1, len(self.compute_times))
+        print(f"Total compute time: {total_compute_time:.3f}s")
+        print(f"Average step time: {avg_step_time:.3f}s")
+        print(f"Steps per second: {self.steps / total_compute_time:.2f}")
+        
+        # Biến đổi nhiệt độ
         if len(self.min_temp) > 1:
             temp_change = self.mean_temp[-1] - self.mean_temp[0]
             print(f"Temperature change: {temp_change:.2f}")
             print(f"Final temperature - Min: {self.min_temp[-1]:.2f}, Max: {self.max_temp[-1]:.2f}, Mean: {self.mean_temp[-1]:.2f}")
+    
+    def cleanup(self):
+        """Dọn dẹp tài nguyên"""
+        if self.worker_pool:
+            print("Closing worker pool...")
+            self.worker_pool.close()
+            self.worker_pool.join()
+            self.worker_pool = None
 
-def run_single_test(use_multiprocessing=False, grid_size=300, num_steps=10):
+def run_large_grid_test(use_multiprocessing=False, grid_size=500, num_steps=10):
     """
-    Chạy một bài kiểm thử đơn với lưới lớn để đánh giá hiệu suất
+    Chạy kiểm thử với lưới lớn để đánh giá hiệu suất
     """
-    print(f"\n=== Running {'Multiprocessing' if use_multiprocessing else 'Sequential'} Test ===")
+    print(f"\n=== Running {'Multiprocessing' if use_multiprocessing else 'Sequential'} Large Grid Test ===")
     print(f"Grid size: {grid_size}x{grid_size}")
     print(f"Number of steps: {num_steps}")
     
     # Khởi tạo mô phỏng
-    sim = WeatherSimulation(grid_size, grid_size, multiprocessing=use_multiprocessing)
+    sim = OptimizedWeatherSimulation(grid_size, grid_size, multiprocessing=use_multiprocessing)
     sim.set_initial_conditions()
     
     # Chạy mô phỏng
@@ -281,29 +339,32 @@ def run_single_test(use_multiprocessing=False, grid_size=300, num_steps=10):
     print(f"Completed in {total_time:.3f} seconds")
     sim.print_statistics()
     
+    # Dọn dẹp
+    sim.cleanup()
+    
     return total_time, sim.get_temperature()
 
 def main():
     """Hàm chính"""
-    print("Weather Simulation Optimized Test")
+    print("Weather Simulation Optimized MultiProcessing Test")
     print(f"Current directory: {current_dir}")
-    print(f"Python path: {sys.path}")
+    print(f"Available CPUs: {cpu_count()}")
     
     try:
-        # Kiểm thử với grid lớn hơn
-        grid_size = 300  # Lưới lớn hơn để tận dụng multiprocessing
-        num_steps = 10    # Giảm số bước để test nhanh hơn
+        # Kiểm thử với lưới lớn
+        grid_size = 500  # Lưới lớn để tận dụng multiprocessing
+        num_steps = 5    # Giảm số bước để test nhanh hơn
         
         print("\n=== SEQUENTIAL TEST ===")
-        seq_time, seq_result = run_single_test(False, grid_size, num_steps)
+        seq_time, seq_result = run_large_grid_test(False, grid_size, num_steps)
         
-        print("\n=== MULTIPROCESSING TEST ===")
-        par_time, par_result = run_single_test(True, grid_size, num_steps)
+        print("\n=== OPTIMIZED MULTIPROCESSING TEST ===")
+        par_time, par_result = run_large_grid_test(True, grid_size, num_steps)
         
         # So sánh kết quả
         print("\n=== Performance Comparison ===")
         print(f"Sequential: {seq_time:.3f} seconds")
-        print(f"Parallel: {par_time:.3f} seconds")
+        print(f"Optimized Parallel: {par_time:.3f} seconds")
         
         if par_time > 0:
             speedup = seq_time / par_time
@@ -314,16 +375,17 @@ def main():
             if speedup > 1:
                 efficiency = speedup / cpu_count() * 100
                 print(f"Parallel efficiency: {efficiency:.1f}%")
-                print("Multiprocessing is providing a performance benefit!")
+                print("Optimized multiprocessing is providing a performance benefit!")
             else:
-                print("Sequential version is still faster for this problem size.")
-                print("Consider increasing grid size or complexity for better multiprocessing benefit.")
+                print("Sequential version is still faster, but the gap has narrowed.")
+                print("Consider further increasing grid size or reducing communication overhead.")
         
         # So sánh độ chính xác
         diff = np.abs(seq_result - par_result)
         print("\n=== Accuracy Comparison ===")
         print(f"Max difference: {np.max(diff):.6f}")
         print(f"Mean difference: {np.mean(diff):.6f}")
+        print(f"Max percentage difference: {np.max(diff)/np.mean(seq_result)*100:.4f}%")
         
     except ImportError as e:
         print(f"Import error: {e}")

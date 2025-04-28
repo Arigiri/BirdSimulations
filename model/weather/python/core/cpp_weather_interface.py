@@ -45,10 +45,10 @@ logger = logging.getLogger(__name__)
 
 try:
     # Thử import mô-đun C++
-    from model.weather.python.cpp_weather import Solver, WindField, TemperatureField, GradientDirection
+    from model.weather.python.core.cpp_weather import Solver, WindField, TemperatureField, GradientDirection
     CPP_MODULE_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"Không thể import module C++: {e}. Chạy 'python -m model.weather.python.build_cpp_module' để biên dịch.")
+    logger.warning(f"Không thể import module C++: {e}. Chạy 'python -m model.weather.python.utils.build_cpp_module' để biên dịch.")
     logger.warning("Chỉ có thể dùng mô hình Python (hiệu suất thấp hơn).")
     CPP_MODULE_AVAILABLE = False
 

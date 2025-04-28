@@ -1,11 +1,6 @@
 """
 Kiểm tra mô phỏng thời tiết đầy đủ với C++ và Python multiprocessing
-
-Script này tạo một mô phỏng thực tế với:
-1. Gradient nhiệt độ và nguồn nhiệt
-2. Trường gió Gaussian động
-3. Hiển thị tiến triển của mô phỏng qua thời gian
-4. So sánh phiên bản tuần tự và song song
+- Phiên bản đã sửa vấn đề pickle module C++
 """
 
 import os
@@ -14,18 +9,80 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 from matplotlib import cm
-from multiprocessing import Pool, cpu_count, freeze_support
+from multiprocessing import Pool, cpu_count, freeze_support, current_process
 
 # Điều chỉnh Python path để tìm được module
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+# Hàm xử lý subdomain ở cấp độ module (không phải phương thức)
+def process_subdomain(args):
+    """
+    Worker function cho multiprocessing - xử lý một phần miền lưới.
+    
+    Args:
+        args (tuple): (start_row, end_row, width, height, kappa, dx, temp_array, 
+                     wind_x_array, wind_y_array, dt)
+    
+    Returns:
+        tuple: (start_row, end_row, new_temp_array)
+    """
+    process_id = current_process().name
+    print(f"Process {process_id} starting...")
+    
+    start_row, end_row, width, height, kappa, dx, temp_array, wind_x_array, wind_y_array, dt = args
+    
+    # Import module C++ trong worker (mỗi worker tự import)
+    try:
+        from model.weather.python.core import cpp_weather
+        print(f"Process {process_id} imported C++ module")
+    except ImportError as e:
+        print(f"Process {process_id} failed to import C++ module: {e}")
+        return start_row, end_row, temp_array
+    
+    # Tạo subdomain với ghost cells
+    sub_height = end_row - start_row + 3  # +3 cho ghost cells (1 trên, 1 dưới)
+    
+    # Xác định vùng dữ liệu với ghost cells
+    ghost_start = max(0, start_row - 1)
+    ghost_end = min(height - 1, end_row + 1)
+    
+    # Chuyển đổi mảng 1D thành 2D để dễ trích xuất subdomain
+    temp_2d = temp_array.reshape(height, width)
+    wind_x_2d = wind_x_array.reshape(height, width)
+    wind_y_2d = wind_y_array.reshape(height, width)
+    
+    # Trích xuất subdomain với ghost cells
+    sub_temp = temp_2d[ghost_start:ghost_end+1, :].copy()
+    sub_wind_x = wind_x_2d[ghost_start:ghost_end+1, :].flatten()
+    sub_wind_y = wind_y_2d[ghost_start:ghost_end+1, :].flatten()
+    
+    # Tạo solver cho subdomain
+    sub_width = width
+    sub_height = sub_temp.shape[0]
+    sub_solver = cpp_weather.Solver(sub_width, sub_height, dx, kappa)
+    
+    # Giải subdomain
+    sub_result = sub_solver.solve_rk4_step(sub_temp, sub_wind_x, sub_wind_y, dt)
+    
+    # Xác định phần kết quả cần trả về (không bao gồm ghost cells)
+    local_start = 1 if start_row > 0 else 0
+    local_end = sub_height - 1 if end_row < height - 1 else sub_height
+    
+    # Chỉ trả về phần kết quả cho subdomain thực tế (không có ghost cells)
+    result_2d = sub_result[local_start:local_end, :]
+    
+    print(f"Process {process_id} completed subdomain [{start_row}:{end_row+1}]")
+    return start_row, end_row, result_2d
 
 class WeatherSimulation:
     """Mô phỏng thời tiết sử dụng module C++"""
     
-    def __init__(self, width, height, multiprocessing=False, num_processes=None):
+    def __init__(self, width, height, multiprocessing=False, num_processes=None, dx=1.0, kappa=0.05):
         """
         Khởi tạo mô phỏng thời tiết.
         
@@ -34,11 +91,15 @@ class WeatherSimulation:
             height (int): Chiều cao lưới
             multiprocessing (bool): Sử dụng multiprocessing
             num_processes (int): Số lượng processes, mặc định là số core
+            dx (float): Khoảng cách lưới
+            kappa (float): Hệ số khuếch tán
         """
         self.width = width
         self.height = height
         self.use_mp = multiprocessing
         self.num_processes = num_processes or min(4, cpu_count())
+        self.dx = dx
+        self.kappa = kappa
         
         print(f"Initializing weather simulation ({width}x{height})")
         print(f"Multiprocessing: {'Enabled' if multiprocessing else 'Disabled'}")
@@ -46,11 +107,11 @@ class WeatherSimulation:
             print(f"Number of processes: {self.num_processes}")
         
         # Import module C++
-        import cpp_weather
+        from model.weather.python.core import cpp_weather
         self.cpp_weather = cpp_weather
         
         # Khởi tạo đối tượng C++
-        self.solver = cpp_weather.Solver(width, height, 1.0, 0.05)  # Kappa nhỏ hơn để thấy rõ đối lưu
+        self.solver = cpp_weather.Solver(width, height, dx, kappa)
         self.wind_field = cpp_weather.WindField(width, height)
         self.temp_field = cpp_weather.TemperatureField(width, height)
         
@@ -151,45 +212,10 @@ class WeatherSimulation:
         
         return dt
     
-    def _process_subdomain(self, args):
-        """
-        Xử lý một subdomain (được sử dụng bởi các worker).
-        
-        Args:
-            args: (start_row, end_row, temp, wind_x, wind_y, dt)
-            
-        Returns:
-            tuple: (start_row, end_row, sub_result)
-        """
-        start_row, end_row, temp, wind_x, wind_y, dt = args
-        
-        # Tạo solver cho subdomain
-        sub_height = end_row - start_row + 1 + 2  # +2 cho ghost cells
-        sub_solver = self.cpp_weather.Solver(self.width, sub_height, 1.0, 0.05)
-        
-        # Trích xuất subdomain với ghost cells
-        sub_start = max(0, start_row - 1)
-        sub_end = min(self.height - 1, end_row + 1)
-        
-        sub_temp = temp[sub_start:sub_end + 1, :]
-        sub_wind_x = wind_x.reshape(self.height, self.width)[sub_start:sub_end + 1, :].flatten()
-        sub_wind_y = wind_y.reshape(self.height, self.width)[sub_start:sub_end + 1, :].flatten()
-        
-        # Giải subdomain
-        new_sub_temp = sub_solver.solve_rk4_step(sub_temp, sub_wind_x, sub_wind_y, dt)
-        
-        # Xác định phạm vi kết quả cần giữ lại (loại bỏ ghost cells)
-        ghost_offset_start = 1 if start_row > 0 else 0
-        ghost_offset_end = 1 if end_row < self.height - 1 else 0
-        
-        actual_result = new_sub_temp[ghost_offset_start:sub_temp.shape[0]-ghost_offset_end, :]
-        
-        return (start_row, end_row, actual_result)
-    
     def _step_multiprocessing(self, dt=None):
         """Xử lý song song"""
         # Lấy dữ liệu
-        temp = self.get_temperature()
+        temp = self.temp_field.get_temperature()
         wind_x = self.wind_field.get_wind_x()
         wind_y = self.wind_field.get_wind_y()
         
@@ -198,20 +224,26 @@ class WeatherSimulation:
             dt = self.solver.compute_cfl_time_step(wind_x, wind_y)
         
         # Chuẩn bị tham số cho mỗi worker
+        # Không truyền đối tượng C++, chỉ truyền dữ liệu cần thiết
         args_list = []
         for start_row, end_row in self.subdomains:
-            args_list.append((start_row, end_row, temp, wind_x, wind_y, dt))
+            args_list.append(
+                (start_row, end_row, self.width, self.height, 
+                 self.kappa, self.dx, temp, wind_x, wind_y, dt)
+            )
         
         # Xử lý song song
         with Pool(processes=self.num_processes) as pool:
-            results = pool.map(self._process_subdomain, args_list)
+            results = pool.map(process_subdomain, args_list)
         
-        # Kết hợp kết quả
+        # Kết hợp kết quả vào một mảng 2D
+        temp_result = np.zeros((self.height, self.width), dtype=np.float64)
         for start_row, end_row, sub_result in results:
-            temp[start_row:end_row+1, :] = sub_result
+            # Cập nhật phần kết quả tương ứng
+            temp_result[start_row:end_row+1, :] = sub_result
         
         # Cập nhật trường nhiệt độ chính
-        self.temp_field.set_temperature(temp.flatten())
+        self.temp_field.set_temperature(temp_result.flatten())
         
         return dt
     
@@ -302,7 +334,7 @@ class WeatherSimulation:
         plt.tight_layout()
         plt.show()
 
-def run_comparison_test(grid_size=200, num_steps=50, step_interval=5):
+def run_comparison_test(grid_size=100, num_steps=20, step_interval=5):
     """
     Chạy và so sánh mô phỏng tuần tự và song song.
     
@@ -353,7 +385,9 @@ def run_comparison_test(grid_size=200, num_steps=50, step_interval=5):
     print("\n=== Performance Comparison ===")
     print(f"Sequential: {seq_time:.3f} seconds")
     print(f"Parallel: {par_time:.3f} seconds")
-    print(f"Speedup: {seq_time/par_time:.2f}x")
+    
+    if par_time > 0:
+        print(f"Speedup: {seq_time/par_time:.2f}x")
     
     # So sánh kết quả
     seq_final = seq_sim.get_temperature()
@@ -370,11 +404,12 @@ def main():
     """Hàm chính"""
     print("Weather Simulation Test")
     print(f"Current directory: {current_dir}")
+    print(f"Python path: {sys.path}")
     
     try:
-        # Các tham số mô phỏng
-        grid_size = 200  # Kích thước lưới
-        num_steps = 50   # Số bước mô phỏng
+        # Các tham số mô phỏng - giảm kích thước để chạy nhanh hơn
+        grid_size = 100  # Kích thước lưới
+        num_steps = 20   # Số bước mô phỏng
         step_interval = 5  # Khoảng bước để hiển thị kết quả
         
         # Chạy so sánh

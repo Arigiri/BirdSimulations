@@ -1,17 +1,15 @@
 """
-Kiểm tra mô phỏng thời tiết đầy đủ với C++ và Python multiprocessing
-- Phiên bản đã sửa vấn đề pickle module C++
+Kiểm tra logic mô phỏng thời tiết với C++ và Python multiprocessing
+- Phiên bản tối ưu với grid lớn hơn để thấy rõ lợi ích multiprocessing
 """
 
 import os
 import sys
 import numpy as np
 import time
-import matplotlib.pyplot as plt
-from matplotlib import cm
 from multiprocessing import Pool, cpu_count, freeze_support, current_process
 
-# Điều chỉnh Python path để tìm được module
+# Điều chỉnh Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
 if project_root not in sys.path:
@@ -19,33 +17,24 @@ if project_root not in sys.path:
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# Hàm xử lý subdomain ở cấp độ module (không phải phương thức)
+# Hàm xử lý subdomain ở cấp độ module
 def process_subdomain(args):
     """
-    Worker function cho multiprocessing - xử lý một phần miền lưới.
-    
-    Args:
-        args (tuple): (start_row, end_row, width, height, kappa, dx, temp_array, 
-                     wind_x_array, wind_y_array, dt)
-    
-    Returns:
-        tuple: (start_row, end_row, new_temp_array)
+    Worker function cho multiprocessing
     """
     process_id = current_process().name
-    print(f"Process {process_id} starting...")
     
     start_row, end_row, width, height, kappa, dx, temp_array, wind_x_array, wind_y_array, dt = args
     
-    # Import module C++ trong worker (mỗi worker tự import)
+    # Import module C++ trong worker
     try:
-        import cpp_weather
-        print(f"Process {process_id} imported C++ module")
+        from model.weather.python.core import cpp_weather
     except ImportError as e:
         print(f"Process {process_id} failed to import C++ module: {e}")
         return start_row, end_row, temp_array
     
     # Tạo subdomain với ghost cells
-    sub_height = end_row - start_row + 3  # +3 cho ghost cells (1 trên, 1 dưới)
+    sub_height = end_row - start_row + 3  # +3 cho ghost cells
     
     # Xác định vùng dữ liệu với ghost cells
     ghost_start = max(0, start_row - 1)
@@ -69,11 +58,11 @@ def process_subdomain(args):
     # Giải subdomain
     sub_result = sub_solver.solve_rk4_step(sub_temp, sub_wind_x, sub_wind_y, dt)
     
-    # Xác định phần kết quả cần trả về (không bao gồm ghost cells)
+    # Xác định phần kết quả cần trả về
     local_start = 1 if start_row > 0 else 0
     local_end = sub_height - 1 if end_row < height - 1 else sub_height
     
-    # Chỉ trả về phần kết quả cho subdomain thực tế (không có ghost cells)
+    # Chỉ trả về phần kết quả cho subdomain thực tế
     result_2d = sub_result[local_start:local_end, :]
     
     print(f"Process {process_id} completed subdomain [{start_row}:{end_row+1}]")
@@ -85,14 +74,6 @@ class WeatherSimulation:
     def __init__(self, width, height, multiprocessing=False, num_processes=None, dx=1.0, kappa=0.05):
         """
         Khởi tạo mô phỏng thời tiết.
-        
-        Args:
-            width (int): Chiều rộng lưới
-            height (int): Chiều cao lưới
-            multiprocessing (bool): Sử dụng multiprocessing
-            num_processes (int): Số lượng processes, mặc định là số core
-            dx (float): Khoảng cách lưới
-            kappa (float): Hệ số khuếch tán
         """
         self.width = width
         self.height = height
@@ -107,7 +88,7 @@ class WeatherSimulation:
             print(f"Number of processes: {self.num_processes}")
         
         # Import module C++
-        import cpp_weather
+        from model.weather.python.core import cpp_weather
         self.cpp_weather = cpp_weather
         
         # Khởi tạo đối tượng C++
@@ -118,15 +99,17 @@ class WeatherSimulation:
         # Khởi tạo dữ liệu lưu trữ
         self.time = 0.0
         self.steps = 0
-        self.temperature_history = []
         self.dt_history = []
+        self.min_temp = []
+        self.max_temp = []
+        self.mean_temp = []
         
         # Chuẩn bị các subdomain nếu sử dụng multiprocessing
         if self.use_mp:
             self._prepare_subdomains()
     
     def _prepare_subdomains(self):
-        """Phân chia lưới thành các subdomain cho multiprocessing"""
+        """Phân chia lưới thành các subdomain"""
         rows_per_process = self.height // self.num_processes
         self.subdomains = []
         
@@ -149,7 +132,7 @@ class WeatherSimulation:
         
         # Thêm nguồn nhiệt ngẫu nhiên
         np.random.seed(42)  # Để tái tạo kết quả
-        num_sources = 3
+        num_sources = 5
         for _ in range(num_sources):
             x = np.random.randint(0, self.width)
             y = np.random.randint(0, self.height)
@@ -160,20 +143,18 @@ class WeatherSimulation:
         # Tạo trường gió Gaussian
         self.wind_field.generate_gaussian_field(8, 2.0, self.width // 8)
         
-        # Lưu trạng thái ban đầu
-        self.temperature_history.append(self.get_temperature())
+        # Lưu thống kê ban đầu
+        temp = self.get_temperature()
+        self.min_temp.append(np.min(temp))
+        self.max_temp.append(np.max(temp))
+        self.mean_temp.append(np.mean(temp))
         
         print("Initial conditions set")
+        print(f"Initial temperature - Min: {self.min_temp[0]:.2f}, Max: {self.max_temp[0]:.2f}, Mean: {self.mean_temp[0]:.2f}")
     
     def step(self, dt=None):
         """
         Tiến hành một bước mô phỏng.
-        
-        Args:
-            dt (float, optional): Bước thời gian. Nếu None, sẽ tính theo CFL.
-        
-        Returns:
-            float: Bước thời gian được sử dụng
         """
         start_time = time.time()
         
@@ -185,13 +166,19 @@ class WeatherSimulation:
         end_time = time.time()
         step_time = end_time - start_time
         
+        # Cập nhật thống kê
+        temp = self.get_temperature()
+        self.min_temp.append(np.min(temp))
+        self.max_temp.append(np.max(temp))
+        self.mean_temp.append(np.mean(temp))
+        
         # Cập nhật trạng thái
         self.time += dt
         self.steps += 1
         self.dt_history.append(dt)
-        self.temperature_history.append(self.get_temperature())
         
         print(f"Step {self.steps}, t = {self.time:.4f}, dt = {dt:.6f}, compute time: {step_time:.6f}s")
+        print(f"  Temperature - Min: {self.min_temp[-1]:.2f}, Max: {self.max_temp[-1]:.2f}, Mean: {self.mean_temp[-1]:.2f}")
         
         return dt
     
@@ -224,7 +211,6 @@ class WeatherSimulation:
             dt = self.solver.compute_cfl_time_step(wind_x, wind_y)
         
         # Chuẩn bị tham số cho mỗi worker
-        # Không truyền đối tượng C++, chỉ truyền dữ liệu cần thiết
         args_list = []
         for start_row, end_row in self.subdomains:
             args_list.append(
@@ -248,15 +234,9 @@ class WeatherSimulation:
         return dt
     
     def get_temperature(self):
-        """Lấy trường nhiệt độ hiện tại dưới dạng mảng 2D"""
+        """Lấy trường nhiệt độ hiện tại"""
         return self.temp_field.get_temperature().reshape(self.height, self.width)
-    
-    def get_wind_field(self):
-        """Lấy trường gió hiện tại dưới dạng hai mảng 2D (x, y)"""
-        wind_x = self.wind_field.get_wind_x().reshape(self.height, self.width)
-        wind_y = self.wind_field.get_wind_y().reshape(self.height, self.width)
-        return wind_x, wind_y
-    
+        
     def randomize_wind(self):
         """Tạo ngẫu nhiên trường gió mới"""
         num_vortices = np.random.randint(3, 10)
@@ -266,154 +246,84 @@ class WeatherSimulation:
         self.wind_field.generate_gaussian_field(num_vortices, strength, radius)
         print(f"Wind field randomized with {num_vortices} vortices")
     
-    def plot_current_state(self, show_wind=True, density=15):
-        """
-        Vẽ trạng thái hiện tại của mô phỏng.
+    def print_statistics(self):
+        """In thống kê mô phỏng"""
+        print("\n=== Simulation Statistics ===")
+        print(f"Total steps: {self.steps}")
+        print(f"Simulation time: {self.time:.4f}")
+        print(f"Average dt: {np.mean(self.dt_history):.6f}")
         
-        Args:
-            show_wind (bool): Hiển thị trường gió
-            density (int): Mật độ vector gió (càng cao càng ít vector)
-        """
-        plt.figure(figsize=(12, 10))
-        
-        # Lấy dữ liệu
-        temp = self.get_temperature()
-        
-        # Vẽ nhiệt độ
-        plt.imshow(temp, cmap=cm.hot, origin='lower')
-        plt.colorbar(label='Temperature')
-        
-        # Vẽ gió nếu cần
-        if show_wind:
-            wind_x, wind_y = self.get_wind_field()
-            
-            # Tạo lưới cho vector gió
-            y, x = np.mgrid[0:self.height:1, 0:self.width:1]
-            
-            # Giảm mật độ để dễ nhìn
-            plt.quiver(x[::density, ::density], 
-                      y[::density, ::density],
-                      wind_x[::density, ::density], 
-                      wind_y[::density, ::density],
-                      color='white', scale=50, alpha=0.7)
-        
-        plt.title(f'Weather Simulation (Step {self.steps}, t={self.time:.2f}s)')
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.tight_layout()
-        plt.show()
-    
-    def plot_temperature_history(self, interval=1):
-        """
-        Vẽ lịch sử nhiệt độ qua các bước thời gian.
-        
-        Args:
-            interval (int): Khoảng bước để hiển thị
-        """
-        if len(self.temperature_history) <= 1:
-            print("Not enough history to plot")
-            return
-        
-        num_steps = len(self.temperature_history)
-        steps_to_plot = range(0, num_steps, interval)
-        
-        num_rows = (len(steps_to_plot) + 3) // 4  # 4 cột mỗi hàng
-        num_cols = min(4, len(steps_to_plot))
-        
-        plt.figure(figsize=(16, 4 * num_rows))
-        
-        for i, step_idx in enumerate(steps_to_plot):
-            plt.subplot(num_rows, num_cols, i + 1)
-            plt.imshow(self.temperature_history[step_idx], cmap=cm.hot, origin='lower')
-            plt.colorbar()
-            t = sum(self.dt_history[:step_idx]) if step_idx > 0 else 0
-            plt.title(f'Step {step_idx}, t={t:.2f}s')
-            plt.xlabel('X')
-            plt.ylabel('Y')
-        
-        plt.tight_layout()
-        plt.show()
+        # In biến đổi nhiệt độ
+        if len(self.min_temp) > 1:
+            temp_change = self.mean_temp[-1] - self.mean_temp[0]
+            print(f"Temperature change: {temp_change:.2f}")
+            print(f"Final temperature - Min: {self.min_temp[-1]:.2f}, Max: {self.max_temp[-1]:.2f}, Mean: {self.mean_temp[-1]:.2f}")
 
-def run_comparison_test(grid_size=100, num_steps=20, step_interval=5):
+def run_single_test(use_multiprocessing=False, grid_size=300, num_steps=10):
     """
-    Chạy và so sánh mô phỏng tuần tự và song song.
-    
-    Args:
-        grid_size (int): Kích thước lưới vuông
-        num_steps (int): Số bước mô phỏng
-        step_interval (int): Khoảng bước để hiển thị kết quả
+    Chạy một bài kiểm thử đơn với lưới lớn để đánh giá hiệu suất
     """
-    # Chạy phiên bản tuần tự
-    print("\n=== Running Sequential Simulation ===")
-    seq_sim = WeatherSimulation(grid_size, grid_size, multiprocessing=False)
-    seq_sim.set_initial_conditions()
+    print(f"\n=== Running {'Multiprocessing' if use_multiprocessing else 'Sequential'} Test ===")
+    print(f"Grid size: {grid_size}x{grid_size}")
+    print(f"Number of steps: {num_steps}")
     
+    # Khởi tạo mô phỏng
+    sim = WeatherSimulation(grid_size, grid_size, multiprocessing=use_multiprocessing)
+    sim.set_initial_conditions()
+    
+    # Chạy mô phỏng
     start_time = time.time()
     for i in range(num_steps):
-        seq_sim.step()
-        if i > 0 and i % 10 == 0:
-            # Đổi trường gió sau mỗi 10 bước
-            seq_sim.randomize_wind()
+        sim.step()
+    end_time = time.time()
+    total_time = end_time - start_time
     
-    seq_time = time.time() - start_time
-    print(f"Sequential simulation completed in {seq_time:.3f} seconds")
+    print(f"Completed in {total_time:.3f} seconds")
+    sim.print_statistics()
     
-    # Hiển thị kết quả tuần tự
-    seq_sim.plot_current_state()
-    seq_sim.plot_temperature_history(step_interval)
-    
-    # Chạy phiên bản song song
-    print("\n=== Running Parallel Simulation ===")
-    par_sim = WeatherSimulation(grid_size, grid_size, multiprocessing=True)
-    par_sim.set_initial_conditions()
-    
-    start_time = time.time()
-    for i in range(num_steps):
-        par_sim.step()
-        if i > 0 and i % 10 == 0:
-            # Đổi trường gió sau mỗi 10 bước
-            par_sim.randomize_wind()
-    
-    par_time = time.time() - start_time
-    print(f"Parallel simulation completed in {par_time:.3f} seconds")
-    
-    # Hiển thị kết quả song song
-    par_sim.plot_current_state()
-    par_sim.plot_temperature_history(step_interval)
-    
-    # So sánh hiệu suất
-    print("\n=== Performance Comparison ===")
-    print(f"Sequential: {seq_time:.3f} seconds")
-    print(f"Parallel: {par_time:.3f} seconds")
-    
-    if par_time > 0:
-        print(f"Speedup: {seq_time/par_time:.2f}x")
-    
-    # So sánh kết quả
-    seq_final = seq_sim.get_temperature()
-    par_final = par_sim.get_temperature()
-    diff = np.abs(seq_final - par_final)
-    
-    print("\n=== Result Comparison ===")
-    print(f"Max difference: {np.max(diff):.6f}")
-    print(f"Mean difference: {np.mean(diff):.6f}")
-    print(f"Sequential - Min: {np.min(seq_final):.2f}, Max: {np.max(seq_final):.2f}, Mean: {np.mean(seq_final):.2f}")
-    print(f"Parallel - Min: {np.min(par_final):.2f}, Max: {np.max(par_final):.2f}, Mean: {np.mean(par_final):.2f}")
+    return total_time, sim.get_temperature()
 
 def main():
     """Hàm chính"""
-    print("Weather Simulation Test")
+    print("Weather Simulation Optimized Test")
     print(f"Current directory: {current_dir}")
     print(f"Python path: {sys.path}")
     
     try:
-        # Các tham số mô phỏng - giảm kích thước để chạy nhanh hơn
-        grid_size = 100  # Kích thước lưới
-        num_steps = 20   # Số bước mô phỏng
-        step_interval = 5  # Khoảng bước để hiển thị kết quả
+        # Kiểm thử với grid lớn hơn
+        grid_size = 300  # Lưới lớn hơn để tận dụng multiprocessing
+        num_steps = 10    # Giảm số bước để test nhanh hơn
         
-        # Chạy so sánh
-        run_comparison_test(grid_size, num_steps, step_interval)
+        print("\n=== SEQUENTIAL TEST ===")
+        seq_time, seq_result = run_single_test(False, grid_size, num_steps)
+        
+        print("\n=== MULTIPROCESSING TEST ===")
+        par_time, par_result = run_single_test(True, grid_size, num_steps)
+        
+        # So sánh kết quả
+        print("\n=== Performance Comparison ===")
+        print(f"Sequential: {seq_time:.3f} seconds")
+        print(f"Parallel: {par_time:.3f} seconds")
+        
+        if par_time > 0:
+            speedup = seq_time / par_time
+            print(f"Speedup: {speedup:.2f}x")
+            
+            # Phân tích hiệu suất
+            print("\n=== Performance Analysis ===")
+            if speedup > 1:
+                efficiency = speedup / cpu_count() * 100
+                print(f"Parallel efficiency: {efficiency:.1f}%")
+                print("Multiprocessing is providing a performance benefit!")
+            else:
+                print("Sequential version is still faster for this problem size.")
+                print("Consider increasing grid size or complexity for better multiprocessing benefit.")
+        
+        # So sánh độ chính xác
+        diff = np.abs(seq_result - par_result)
+        print("\n=== Accuracy Comparison ===")
+        print(f"Max difference: {np.max(diff):.6f}")
+        print(f"Mean difference: {np.mean(diff):.6f}")
         
     except ImportError as e:
         print(f"Import error: {e}")
