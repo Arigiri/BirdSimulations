@@ -21,6 +21,46 @@ bird_info_label = None
 flock_info_label = None
 
 # Định nghĩa kích thước thanh thông tin
+def update_bird_info_label():
+    """Cập nhật label hiển thị thông tin chim được chọn"""
+    global bird_info_label
+    
+    # Xóa label cũ nếu có
+    if bird_info_label:
+        bird_info_label = None
+    
+    # Nếu có chim được chọn, tạo label thông tin
+    if selected_bird:
+        # Tạo text hiển thị
+        info_text = "\n\nTHÔNG TIN CHIM ĐƯỢC CHỌN\n"
+        info_text += "------------------------\n"
+        
+        # Truy cập trực tiếp thuộc tính của bird thay vì qua get_info()
+        info_text += f"Vị trí: ({selected_bird.position.x:.1f}, {selected_bird.position.y:.1f})\n"
+        info_text += f"Vận tốc: ({selected_bird.velocity.x:.1f}, {selected_bird.velocity.y:.1f})\n"
+        info_text += f"Tốc độ: {selected_bird.velocity.magnitude():.1f}\n"
+        
+        # Hiển thị thông tin tùy chọn nếu có
+        if hasattr(selected_bird, 'hunger'):
+            info_text += f"Đói: {selected_bird.hunger:.2f}\n"
+        
+        if hasattr(selected_bird, 'lifetime'):
+            info_text += f"Tuổi thọ: {selected_bird.lifetime:.1f}s\n"
+        
+        if hasattr(selected_bird, 'energy'):
+            info_text += f"Năng lượng: {selected_bird.energy:.2f}\n"
+            
+        # Tạo label mới
+        bird_info_label = pyglet.text.Label(
+            info_text,
+            font_name='Arial',
+            font_size=12,
+            x=WINDOW_WIDTH - INFO_PANEL_WIDTH + 10,
+            y=WINDOW_HEIGHT - 250,
+            width=INFO_PANEL_WIDTH - 20,
+            multiline=True,
+            color=(255, 255, 0, 255)
+        )
 
 def update(dt):
     """Cập nhật trạng thái mô phỏng với phương pháp linh hoạt"""
@@ -46,13 +86,17 @@ def update(dt):
         # Xử lý tương tác giữa chim và trái cây
         if fruit_manager and hasattr(renderer, 'birds'):
             for bird in renderer.birds:
+                # Chim không ăn nếu đã no
+                if hasattr(bird, 'hunger') and bird.hunger >= 0.8:
+                    continue  # Bỏ qua nếu chim đã no
+
                 if fruit_manager.consume_fruit(bird.position, 15.0):
                     # Kiểm tra và lưu lại giá trị đói trước khi cho ăn (để hiển thị hiệu ứng)
                     old_hunger = bird.hunger if hasattr(bird, 'hunger') else None
                     
                     # Nếu chim có phương thức feed, gọi nó với giá trị từ config
-                    if hasattr(bird, 'feed'):
-                        bird.feed(FRUIT_NUTRITION_VALUE)  # Sử dụng hằng số từ config
+                    if hasattr(bird, 'eat'):
+                        bird.eat(FRUIT_NUTRITION_VALUE)  # Sử dụng hằng số từ config
                         
                         # Thêm thuộc tính hiển thị thông báo
                         bird.show_feed_message = True
@@ -60,23 +104,23 @@ def update(dt):
                         
                         # Lưu thông tin về sự thay đổi đói để hiển thị
                         if old_hunger is not None:
-                            bird.hunger_change = old_hunger - bird.hunger
+                            bird.hunger_change = bird.hunger - old_hunger
                         
                         # Thêm hiệu ứng đổi màu tạm thời cho chim (nếu có thuộc tính color)
                         if hasattr(bird, 'color'):
                             # Lưu màu gốc nếu chưa được lưu
                             if not hasattr(bird, 'original_color'):
-                                bird.original_color = bird.color.copy()
+                                bird.original_color = tuple(bird.color)
                             
                             # Đổi sang màu xanh lá (ăn no)
-                            bird.color = (0, 255, 0)
+                            bird.color = (0, 255, 0, 0)
                             
                             # Đặt thời gian để phục hồi màu
                             bird.color_reset_time = current_time + 0.5  # 0.5 giây
                     
                     # In thông báo để debug và kiểm tra giá trị hunger trước và sau
                     if old_hunger is not None:
-                        print(f"Chim đã ăn quả! Độ đói: {old_hunger:.2f} -> {bird.hunger:.2f} (giảm {old_hunger - bird.hunger:.2f})")
+                        print(f"Chim đã ăn quả! Độ đói: {old_hunger:.2f} -> {bird.hunger:.2f} (giảm {bird.hunger - old_hunger:.2f})")
                     else:
                         print(f"Chim đã ăn quả! Độ đói hiện tại: {bird.hunger if hasattr(bird, 'hunger') else 'N/A'}")
 
@@ -139,6 +183,7 @@ def main():
     # Hàm xử lý phím
     @window.event
     def on_key_press(symbol, modifiers):
+        global fruit_manager
         nonlocal paused
         
         if symbol == key.SPACE:
@@ -156,7 +201,7 @@ def main():
         elif symbol == key.R:
             # Đặt lại mô phỏng
             renderer.birds = []
-            renderer.create_birds(50)
+            renderer.create_birds(1)
             
             # Cũng đặt lại trái cây
             fruit_manager = FruitManager()
@@ -184,47 +229,6 @@ def main():
                     
             # Cập nhật label thông tin chim
             update_bird_info_label()
-    
-    def update_bird_info_label():
-        """Cập nhật label hiển thị thông tin chim được chọn"""
-        global bird_info_label
-        
-        # Xóa label cũ nếu có
-        if bird_info_label:
-            bird_info_label = None
-        
-        # Nếu có chim được chọn, tạo label thông tin
-        if selected_bird:
-            # Tạo text hiển thị
-            info_text = "\n\nTHÔNG TIN CHIM ĐƯỢC CHỌN\n"
-            info_text += "------------------------\n"
-            
-            # Truy cập trực tiếp thuộc tính của bird thay vì qua get_info()
-            info_text += f"Vị trí: ({selected_bird.position.x:.1f}, {selected_bird.position.y:.1f})\n"
-            info_text += f"Vận tốc: ({selected_bird.velocity.x:.1f}, {selected_bird.velocity.y:.1f})\n"
-            info_text += f"Tốc độ: {selected_bird.velocity.magnitude():.1f}\n"
-            
-            # Hiển thị thông tin tùy chọn nếu có
-            if hasattr(selected_bird, 'hunger'):
-                info_text += f"Đói: {selected_bird.hunger:.2f}\n"
-            
-            if hasattr(selected_bird, 'lifetime'):
-                info_text += f"Tuổi thọ: {selected_bird.lifetime:.1f}s\n"
-            
-            if hasattr(selected_bird, 'energy'):
-                info_text += f"Năng lượng: {selected_bird.energy:.2f}\n"
-                
-            # Tạo label mới
-            bird_info_label = pyglet.text.Label(
-                info_text,
-                font_name='Arial',
-                font_size=12,
-                x=WINDOW_WIDTH - INFO_PANEL_WIDTH + 10,
-                y=WINDOW_HEIGHT - 250,
-                width=INFO_PANEL_WIDTH - 20,
-                multiline=True,
-                color=(255, 255, 0, 255)
-            )
 
     def update_flock_info():
         """Cập nhật và hiển thị thông tin tổng quan về đàn chim"""
@@ -312,7 +316,6 @@ def main():
             'BẢNG ĐIỀU KHIỂN',
             font_name='Arial',
             font_size=16,
-            bold=True,
             x=WINDOW_WIDTH - INFO_PANEL_WIDTH + (INFO_PANEL_WIDTH // 2),
             y=WINDOW_HEIGHT - 25,
             anchor_x='center',
@@ -324,9 +327,9 @@ def main():
         separator = pyglet.shapes.Line(
             WINDOW_WIDTH - INFO_PANEL_WIDTH + 10, WINDOW_HEIGHT - 40,
             WINDOW_WIDTH - 10, WINDOW_HEIGHT - 40,
-            width=2,
             color=(100, 100, 100)
         )
+        separator.width = 2
         separator.draw()
         
         # Vẽ tiêu đề
@@ -377,7 +380,7 @@ def main():
             for bird in renderer.birds:
                 if hasattr(bird, 'show_feed_message') and bird.show_feed_message:
                     if hasattr(bird, 'hunger_change'):
-                        message = f"-{bird.hunger_change:.1f}"
+                        message = f"+{bird.hunger_change:.1f}"
                     else:
                         message = "Đã ăn!"
                     
@@ -403,9 +406,9 @@ def main():
             separator2 = pyglet.shapes.Line(
                 WINDOW_WIDTH - INFO_PANEL_WIDTH + 10, WINDOW_HEIGHT - 230,
                 WINDOW_WIDTH - 10, WINDOW_HEIGHT - 230,
-                width=1,
                 color=(100, 100, 100)
             )
+            separator2.width = 1
             separator2.draw()
             
             # Vẽ label
@@ -426,9 +429,9 @@ def main():
                     line = pyglet.shapes.Line(
                         start[0], start[1], 
                         end[0], end[1], 
-                        width=2, 
                         color=(255, 255, 0)
                     )
+                    line.width = 2
                     line.draw()
         
         # Hiển thị FPS

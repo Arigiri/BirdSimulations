@@ -119,6 +119,10 @@ def seek_food(bird, food_positions, ripeness, food_radius=150.0):
     Returns:
         Vector2D: Lực steering hướng về quả hấp dẫn nhất
     """
+    # Chim không đi tìm thức ăn nếu không đói
+    if hasattr(bird, 'hunger') and bird.hunger >= 0.8:
+        return Vector2D()
+
     if not food_positions or len(food_positions) == 0:
         return Vector2D()
     

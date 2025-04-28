@@ -9,7 +9,7 @@ class Bird:
     Sử dụng thuật toán boids để điều khiển chuyển động.
     """
     
-    def __init__(self, x=None, y=None, velocity=None, max_lifespan=1000):
+    def __init__(self, x=None, y=None, velocity=None, max_lifespan=20000):
         """Khởi tạo chim với vị trí và vận tốc."""
         # Khởi tạo vị trí ngẫu nhiên nếu không được cung cấp
         if x is None or y is None:

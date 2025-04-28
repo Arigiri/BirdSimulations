@@ -59,4 +59,4 @@ FRUIT_RADIUS = 5.0
 FRUIT_COLOR_UNRIPE = (0, 255, 0, 255)    # Xanh lá cây
 FRUIT_COLOR_RIPE = (255, 165, 0, 255)    # Cam
 RIPENING_RATE = 0.1                    # Tốc độ chín (đơn vị độ chín/giây)
-FRUIT_NUTRITION_VALUE = 2.0            # Giá trị dinh dưỡng của mỗi quả (giảm độ đói)
+FRUIT_NUTRITION_VALUE = 0.3            # Giá trị dinh dưỡng của mỗi quả (giảm độ đói)
