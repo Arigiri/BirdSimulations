@@ -5,7 +5,7 @@ Module chứa các hàm tính toán liên quan đến trái cây
 import random
 import math
 from utils.vector import Vector2D
-from utils.config import WINDOW_WIDTH, WINDOW_HEIGHT, RIPENING_RATE
+from utils.config import WINDOW_WIDTH, WINDOW_HEIGHT, RIPENING_RATE, INFO_PANEL_WIDTH
 
 def calculate_ripeness(time_existed):
     """
@@ -35,7 +35,7 @@ def generate_fruit_position(location=None):
         Vector2D: Vị trí của quả mới
     """
     # Thêm padding để tránh tạo quả quá gần viền màn hình
-    padding = 50
+    padding = INFO_PANEL_WIDTH
     
     if location:
         # Nếu có vị trí trung tâm, tạo quả trong phạm vi quanh vị trí đó
@@ -50,12 +50,12 @@ def generate_fruit_position(location=None):
         y = center_y + r * math.sin(theta)
         
         # Giới hạn trong màn hình
-        x = max(padding, min(x, WINDOW_WIDTH - padding))
-        y = max(padding, min(y, WINDOW_HEIGHT - padding))
+        x = max(0, min(x, WINDOW_WIDTH - padding))
+        y = min(y, WINDOW_HEIGHT)
     else:
         # Tạo ngẫu nhiên trong toàn màn hình
-        x = random.uniform(padding, WINDOW_WIDTH - padding)
-        y = random.uniform(padding, WINDOW_HEIGHT - padding)
+        x = random.uniform(0, WINDOW_WIDTH - padding)
+        y = random.uniform(0, WINDOW_HEIGHT)
     
     return Vector2D(x, y)
 

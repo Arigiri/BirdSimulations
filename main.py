@@ -166,8 +166,8 @@ def main():
     
     # Tạo FPS display 
     fps_display = pyglet.window.FPSDisplay(window=window)
-    fps_display.label.x = window.width - 100
-    fps_display.label.y = window.height - 30
+    fps_display.label.x = 30
+    fps_display.label.y = 30
     fps_display.label.font_size = 14
     
     # Tạo labels thông tin
