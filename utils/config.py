@@ -60,3 +60,37 @@ FRUIT_COLOR_UNRIPE = (0, 255, 0, 255)    # Xanh lá cây
 FRUIT_COLOR_RIPE = (255, 165, 0, 255)    # Cam
 RIPENING_RATE = 0.1                    # Tốc độ chín (đơn vị độ chín/giây)
 FRUIT_NUTRITION_VALUE = 2.0            # Giá trị dinh dưỡng của mỗi quả (giảm độ đói)
+
+# -----------------------------
+# Cài đặt cho Weather Module
+# -----------------------------
+
+# Cài đặt kích thước lưới
+GRID_SIZE_X = 100  # Số điểm lưới theo chiều ngang
+GRID_SIZE_Y = 80   # Số điểm lưới theo chiều dọc
+GRID_SPACING_K = 10.0  # Khoảng cách giữa các điểm lưới (đơn vị)
+
+# Cài đặt nhiệt độ
+THERMAL_DIFFUSIVITY = 0.1  # Hệ số khuếch tán nhiệt κ
+INITIAL_TEMPERATURE = 20.0  # Nhiệt độ ban đầu
+HOTSPOT_TEMPERATURE = 80.0  # Nhiệt độ tại điểm nóng (ví dụ: khi nhấp chuột)
+
+# Cài đặt vật lý
+DELTA_T = 0.1  # Bước thời gian mỗi lần cập nhật (giây)
+T_MAX = 1000.0  # Thời gian mô phỏng tối đa (giây)
+
+# Cài đặt gió
+WIND_STRENGTH = 2.0  # Cường độ gió
+WIND_ANIMATION_SPEED = 0.5  # Tốc độ thay đổi trường gió
+
+# Cài đặt hiển thị
+HEATMAP_ALPHA = 180  # Độ đậm của heatmap (0-255)
+HEATMAP_RESOLUTION = 1  # Độ phân giải heatmap (1 = đầy đủ, 2 = giảm 1/2,...)
+WIND_ARROW_SCALE = 0.5  # Tỷ lệ kích thước mũi tên gió
+WIND_SCALE = WIND_ARROW_SCALE  # Alias cho WIND_ARROW_SCALE để tương thích với heatmap_renderer
+WIND_SAMPLING = 10  # Số ô lưới giữa các mũi tên gió để giảm độ dày đặc
+WIND_COLOR = (255, 255, 255, 180)  # Màu sắc của mũi tên gió (RGBA)
+
+# Cài đặt tác động của thời tiết
+RIPENING_TEMPERATURE_FACTOR = 0.05  # Hệ số ảnh hưởng của nhiệt độ đến tốc độ chín của quả
+WIND_STEERING_FACTOR = 0.2  # Hệ số ảnh hưởng của gió đến hướng bay của chim

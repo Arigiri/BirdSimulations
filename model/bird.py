@@ -51,6 +51,28 @@ class Bird:
         """Áp dụng lực lái lên chim (chỉ thay đổi hướng, không thay đổi tốc độ)."""
         self.steering = self.steering + force
     
+    def apply_wind_force(self, wind_vector, factor=WIND_STEERING_FACTOR):
+        """
+        Áp dụng lực gió lên chim với một hệ số ảnh hưởng.
+        
+        Args:
+            wind_vector (Vector2D): Vector gió tại vị trí của chim
+            factor (float): Hệ số ảnh hưởng của gió (0 = không ảnh hưởng, 1 = ảnh hưởng hoàn toàn)
+        """
+        if wind_vector and wind_vector.magnitude() > 0.01:
+            # Tạo lực từ vector gió, nhân với hệ số ảnh hưởng
+            wind_force = wind_vector.copy() * factor
+            
+            # Thêm một ít nhiễu ngẫu nhiên để tạo chuyển động tự nhiên hơn
+            wind_force.x += np.random.uniform(-0.05, 0.05)
+            wind_force.y += np.random.uniform(-0.05, 0.05)
+            
+            # Giới hạn lực gió tương ứng với max_force/2
+            wind_force = wind_force.limit(self.max_force * 0.5)
+            
+            # Áp dụng lực gió vào steering
+            self.apply_force(wind_force)
+    
     def update(self, dt=1.0, nearby_birds=None, food_positions=None, food_ripeness=None):
         """
         Cập nhật vị trí và trạng thái của chim.

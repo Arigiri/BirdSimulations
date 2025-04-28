@@ -1,0 +1,1 @@
+-IC:/Users/ASUS/Desktop/BirdSimulations/model/weather/cpp/include -isystem C:/Users/ASUS/AppData/Local/Programs/Python/Python310/Include -isystem "C:/Users/ASUS/AppData/Local/Programs/Python/Python310/Lib/site-packages/pybind11/include"

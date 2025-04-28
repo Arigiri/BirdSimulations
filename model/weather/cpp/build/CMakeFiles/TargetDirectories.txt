@@ -1,0 +1,3 @@
+C:/Users/ASUS/Desktop/BirdSimulations/model/weather/cpp/build/CMakeFiles/cpp_weather.dir
+C:/Users/ASUS/Desktop/BirdSimulations/model/weather/cpp/build/CMakeFiles/edit_cache.dir
+C:/Users/ASUS/Desktop/BirdSimulations/model/weather/cpp/build/CMakeFiles/rebuild_cache.dir
